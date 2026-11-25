@@ -1,0 +1,2653 @@
+<!doctype html>
+<!--
+  Planificador de proyectos · un solo archivo HTML, sin instalar nada.
+  Ábrelo con doble clic en Edge o Chrome. Vistas directas: planificador.html#avance · planificador.html#hitos
+
+  Contenido de este archivo (buscar "=== " para saltar entre secciones):
+    estilos · motor (fechas, festivos, calendario, cronograma) · modelo (EDT, predecesoras) · avance
+    archivos (.plan.json, XML de MS Project/ProjectLibre, CSV) · vistas (tabla, Gantt, avance, hitos) · aplicación
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planificador</title>
+<style>
+/* =================================================================== estilos */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --panel: #ffffff;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --line: #e7e6e1;
+  --hover: #f3f3f0;
+  --select: #e8f0fe;
+  --off: #f1f0ec;
+  --accent: #2a78d6;
+  --series-1: #2a78d6;
+  --series-1-dark: #1c5cab;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --track: #cde2fb;
+  --critical: #d03b3b;
+  --critical-dark: #9e2a2a;
+  --good: #0ca30c;
+  --good-ink: #006300;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --summary: #0b0b0b;
+  --ring: #fcfcfb;
+  --error-bg: #fdf0f0;
+  --shadow: 0 10px 34px rgba(0,0,0,.22);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --panel: #161615;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --line: #2a2a28;
+    --hover: #222220;
+    --select: #1d2f48;
+    --off: #20201e;
+    --accent: #3987e5;
+    --series-1: #3987e5;
+    --series-1-dark: #86b6ef;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --track: #1c3a5e;
+    --critical: #d03b3b;
+    --critical-dark: #f0a3a3;
+    --good: #0ca30c;
+    --good-ink: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --summary: #f0efec;
+    --ring: #1a1a19;
+    --error-bg: #3a1c1c;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--page); }
+body { display: flex; flex-direction: column; }
+button, select, input { font: inherit; color: inherit; }
+button {
+  padding: 5px 10px; border: 1px solid var(--axis); border-radius: 6px; background: var(--panel); cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { color: #fff; filter: brightness(1.08); }
+input[type=date], select, .field input { padding: 4px 6px; border: 1px solid var(--axis); border-radius: 6px; background: var(--panel); }
+
+.topbar, .toolbar, .tabs { display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.project-name { font-size: 17px; font-weight: 600; border: 1px solid transparent; border-radius: 6px; padding: 4px 8px; width: 340px; background: transparent; }
+.project-name:hover, .project-name:focus { border-color: var(--axis); outline: none; }
+.field { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.spacer { flex: 1; }
+.sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.file-info { color: var(--ink-2); white-space: nowrap; }
+.file-info .dirty { color: #b45309; font-weight: 600; margin-left: 4px; }
+.file-info .saved { color: var(--good-ink); margin-left: 4px; }
+@media (prefers-color-scheme: dark) { .file-info .dirty { color: var(--warning); } }
+
+.menu { position: relative; }
+.menu > summary { list-style: none; padding: 5px 10px; border: 1px solid var(--axis); border-radius: 6px; cursor: pointer; background: var(--panel); }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu[open] > summary { border-color: var(--accent); color: var(--accent); }
+.menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 300px; background: var(--panel); border: 1px solid var(--axis);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; }
+.menu-list button { border: none; text-align: left; padding: 7px 10px; border-radius: 5px; display: flex; justify-content: space-between; gap: 16px; }
+.menu-list button:hover { background: var(--hover); }
+.menu-list kbd { color: var(--muted); font: inherit; }
+.menu-list hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; width: auto; }
+
+.tabs { padding-top: 0; padding-bottom: 0; gap: 2px; }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 9px 14px; color: var(--ink-2); }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs .hint { margin-left: auto; color: var(--muted); }
+
+.banner { background: var(--error-bg); color: var(--critical-dark); border-bottom: 1px solid var(--line); padding: 8px 14px; font-weight: 500; }
+.view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------------- cronograma: tabla + Gantt */
+.workspace { flex: 1; display: flex; min-height: 0; background: var(--surface); }
+.grid-pane { flex: none; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+/* sin barra vertical (la del Gantt manda); barra horizontal solo si el panel es más angosto que la tabla */
+.grid-body { flex: 1; overflow: auto; }
+.grid-body::-webkit-scrollbar { width: 0; height: 10px; }
+.grid-body::-webkit-scrollbar-thumb { background: var(--axis); border-radius: 5px; }
+.grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; }
+/* redimensionar: borde de "Nombre de tarea" y divisor tabla | Gantt (arrastrar, doble clic restablece, ←/→ con foco) */
+.col-resizer { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; touch-action: none; z-index: 3; }
+.col-resizer::after { content: ''; position: absolute; top: 8px; bottom: 8px; right: 0; width: 2px; border-radius: 1px; background: transparent; }
+.col-resizer:hover::after, .col-resizer:focus-visible::after, body.resizing .col-resizer.active::after { background: var(--accent); }
+.col-resizer:focus { outline: none; }
+.splitter { flex: none; width: 2px; background: var(--axis); position: relative; cursor: col-resize; touch-action: none; z-index: 4; }
+.splitter::before { content: ''; position: absolute; top: 0; bottom: 0; left: -4px; right: -4px; }
+.splitter:hover, .splitter:focus-visible, .splitter.active { background: var(--accent); }
+.splitter:focus { outline: none; }
+body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
+.grid thead th { position: sticky; top: 0; z-index: 2; height: 48px; background: var(--panel); color: var(--ink-2); font-weight: 600; text-align: left;
+  padding: 0 6px; border-bottom: 1px solid var(--axis); border-right: 1px solid var(--line); }
+.grid td { height: 30px; padding: 0 6px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid tr.row:hover td { background: var(--hover); }
+.grid tr.selected td { background: var(--select) !important; }
+.grid tr.error td { background: var(--error-bg) !important; }
+.grid tr.summary td { font-weight: 600; }
+.grid tr.critical .c-name input { color: var(--critical-dark); }
+.c-row { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.grid td.c-row { cursor: pointer; user-select: none; } /* clic: seleccionar fila · Shift: rango · Ctrl/Cmd: agregar o quitar */
+.name-wrap { display: flex; align-items: center; gap: 2px; }
+.toggle, .star { border: none; background: none; padding: 0 2px; width: 18px; color: var(--muted); }
+.star.on { color: #c98500; }
+.toggle-space { display: inline-block; width: 18px; flex: none; }
+.ms-icon { font-size: 11px; margin-right: 2px; }
+.grid tr.critical .ms-icon { color: var(--critical); }
+.cell { width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 3px 4px; background: transparent; font-weight: inherit; }
+.cell:hover { border-color: var(--axis); }
+.cell:focus { border-color: var(--accent); outline: none; background: var(--panel); }
+.cell.num { text-align: right; }
+.computed { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.computed.zero { color: var(--critical); font-weight: 600; }
+.pad { height: 120px; }
+.gantt-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+/* el cuerpo reserva siempre el canal de la barra vertical y el encabezado se angosta ese ancho (margin-right desde JS):
+   así ambos tienen el mismo ancho útil y el scroll horizontal llega igual hasta el final */
+.gantt-header { flex: none; height: 48px; overflow: hidden; background: var(--panel); }
+.gantt-body { flex: 1; overflow: auto; scrollbar-gutter: stable; }
+.gantt-body::after { content: ''; display: block; height: 120px; }
+svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.g-svg { display: block; }
+.g-head { fill: var(--panel); stroke: var(--line); }
+.g-head.off { fill: var(--off); }
+.g-head-text { font-size: 11px; fill: var(--ink-2); }
+.g-head-small { font-size: 10px; fill: var(--muted); }
+.g-axis { stroke: var(--axis); }
+.g-grid { stroke: var(--grid); }
+.g-row { fill: transparent; stroke: var(--line); stroke-width: .5; }
+.g-row.selected { fill: var(--select); }
+.g-off { fill: var(--off); }
+.g-today { stroke: var(--ink-2); stroke-width: 1; }
+.g-today-label { font-size: 10px; fill: var(--ink-2); }
+.g-bar { cursor: pointer; }
+.g-bar-bg { fill: var(--series-1); }
+.g-bar-progress { fill: var(--series-1-dark); }
+.g-bar.critical .g-bar-bg { fill: var(--critical); }
+.g-bar.critical .g-bar-progress { fill: var(--critical-dark); }
+.g-bar:hover .g-bar-bg { filter: brightness(1.1); }
+.g-summary { fill: var(--summary); cursor: pointer; }
+.g-milestone { fill: var(--summary); stroke: var(--ring); stroke-width: 2; cursor: pointer; }
+.g-milestone.critical { fill: var(--critical); }
+.g-label { font-size: 11px; fill: var(--ink-2); pointer-events: none; }
+.g-link { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.g-link.critical { stroke: var(--critical); }
+.g-arrow { fill: var(--muted); }
+.g-arrow.critical { fill: var(--critical); }
+
+/* ---------------- tableros: avance e hitos */
+.board { flex: 1; overflow: auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 16px; }
+.board-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.card h2 { margin: 0 0 2px; font-size: 15px; }
+.card .sub { margin: 0 0 12px; color: var(--ink-2); }
+.tiles { display: grid; grid-template-columns: minmax(240px, 1.3fr) repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.tile .label { color: var(--ink-2); }
+.tile .value { font-size: 26px; font-weight: 600; margin-top: 4px; }
+.tile .value.hero { font-size: 52px; line-height: 1.05; }
+.tile .note { color: var(--muted); margin-top: 4px; }
+.status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.status .icon { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex: none; }
+.status.completado .icon, .status.al-dia .icon, .status.cumplido .icon { background: var(--good); }
+.status.en-riesgo .icon, .status.proximo .icon { background: var(--warning); color: #0b0b0b; }
+.status.atrasado .icon, .status.vencido .icon { background: var(--critical); }
+.status.sin-iniciar .icon, .status.pendiente .icon { background: var(--muted); }
+.legend { display: flex; gap: 18px; align-items: center; color: var(--ink-2); margin-bottom: 8px; flex-wrap: wrap; }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw-bar { width: 14px; height: 10px; border-radius: 0 3px 3px 0; background: var(--series-1); }
+.legend .sw-track { width: 14px; height: 10px; border-radius: 0 3px 3px 0; background: var(--track); }
+.legend .sw-mark { width: 2px; height: 14px; background: var(--ink); }
+.legend .sw-dia { width: 10px; height: 10px; transform: rotate(45deg); background: var(--muted); }
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; }
+.c-text { font-size: 12px; fill: var(--ink); }
+.c-text-2 { font-size: 12px; fill: var(--ink-2); }
+.c-muted { font-size: 11px; fill: var(--muted); }
+.c-grid { stroke: var(--grid); stroke-width: 1; }
+.c-axis { stroke: var(--axis); stroke-width: 1; }
+.c-track { fill: var(--track); }
+.c-bar { fill: var(--series-1); }
+.c-row:hover .c-bar { filter: brightness(1.12); }
+.c-row:hover .c-hit { fill: var(--hover); }
+.c-hit { fill: transparent; }
+.c-mark { stroke: var(--ink); stroke-width: 2; }
+.c-cut { stroke: var(--ink-2); stroke-width: 1; }
+.dia { stroke: var(--ring); stroke-width: 2; }
+.dia.cumplido { fill: var(--good); }
+.dia.vencido { fill: var(--critical); }
+.dia.proximo { fill: var(--warning); }
+.dia.pendiente { fill: var(--muted); }
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+.data-table th { color: var(--ink-2); font-weight: 600; }
+.data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); padding: 20px 0; }
+.link-btn { border: none; background: none; color: var(--accent); padding: 0; }
+
+/* ---------------- avisos */
+.statusbar { padding: 6px 14px; border-top: 1px solid var(--line); background: var(--panel); color: var(--ink-2); }
+.statusbar b { color: var(--ink); }
+.statusbar .crit { color: var(--critical); font-weight: 600; }
+.toast { position: fixed; bottom: 46px; left: 50%; transform: translateX(-50%); background: #1f2633; color: #fff; padding: 10px 16px;
+  border-radius: 8px; box-shadow: var(--shadow); max-width: 600px; z-index: 40; }
+.report { border: 1px solid var(--axis); border-radius: 10px; padding: 18px 22px; max-width: 720px; box-shadow: var(--shadow); background: var(--panel); color: var(--ink); }
+.report::backdrop { background: rgba(15,23,42,.4); }
+.report h3 { margin: 0 0 6px; font-size: 16px; }
+.report p { margin: 0 0 10px; color: var(--ink-2); }
+.report ul { margin: 0 0 14px; padding-left: 20px; max-height: 50vh; overflow: auto; line-height: 1.5; }
+.report form { text-align: right; }
+.dropzone { position: fixed; inset: 12px; border: 3px dashed var(--accent); border-radius: 14px; background: rgba(42,120,214,.08); display: flex;
+  align-items: center; justify-content: center; font-size: 18px; color: var(--accent); font-weight: 600; z-index: 50; pointer-events: none; }
+
+/* ---------------- línea base, curva S */
+.toolbar { flex-wrap: wrap; row-gap: 6px; }
+.lb-controls { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lb-state { color: var(--ink-2); white-space: nowrap; }
+.lb-state.draft { color: #b45309; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .lb-state.draft { color: var(--warning); } }
+.cell.date { padding: 2px 2px; font-variant-numeric: tabular-nums; }
+.pin { color: var(--muted); margin-left: 2px; font-size: 11px; }
+.late { color: var(--critical-dark); font-weight: 600; }
+.early { color: var(--good-ink); font-weight: 600; }
+.muted { color: var(--muted); }
+.hist-btn { border: 1px solid var(--axis); border-radius: 10px; padding: 0 6px; font-size: 11px; background: var(--panel); }
+.g-baseline { fill: var(--muted); opacity: .75; }
+.g-baseline-ms { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.dia-lb { fill: var(--surface); stroke: var(--ink-2); stroke-width: 1.5; }
+.c-shift { stroke: var(--muted); stroke-width: 1; }
+.legend .sw-dia-lb { width: 9px; height: 9px; transform: rotate(45deg); border: 1.5px solid var(--ink-2); }
+.sc-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sc-lb { stroke: var(--series-1); }
+.sc-cur { stroke: var(--series-3); }
+.sc-real { stroke: var(--series-2); }
+.sc-dot { fill: var(--series-2); stroke: var(--surface); stroke-width: 2; }
+.sc-cross { stroke: var(--ink-2); stroke-width: 1; }
+.legend .sw-line { width: 18px; height: 2px; border-radius: 1px; }
+.legend .sw-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--series-2); margin-left: -13px; box-shadow: 0 0 0 2px var(--surface); }
+.sc-lb-key { background: var(--series-1); }
+.sc-cur-key { background: var(--series-3); }
+.sc-real-key { background: var(--series-2); }
+.sc-tip { position: fixed; z-index: 45; background: var(--panel); border: 1px solid var(--axis); border-radius: 8px; padding: 8px 10px; box-shadow: var(--shadow); pointer-events: none; min-width: 210px; }
+.sc-tip .tip-date { color: var(--ink-2); margin-bottom: 4px; }
+.sc-tip .tip-row { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+.sc-tip .tip-key { width: 14px; height: 2px; border-radius: 1px; }
+
+@media print {
+  .topbar, .toolbar, .tabs, .statusbar, .board-controls, .no-print { display: none !important; }
+  body, .board { overflow: visible; height: auto; }
+  .card, .tile { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div id="app" style="display:contents"></div>
+<script>
+'use strict';
+(() => {
+/* =================================================================== motor: fechas
+   Fechas sin hora (YYYY-MM-DD), siempre en UTC para que la zona horaria no mueva un día. */
+const MS_PER_DAY = 86400000;
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function toDayNumber(date) {
+  const m = ISO_RE.exec(date);
+  if (!m) throw new RangeError(`Fecha inválida (se espera AAAA-MM-DD): ${date}`);
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const ms = Date.UTC(y, mo - 1, d);
+  const c = new Date(ms);
+  if (c.getUTCFullYear() !== y || c.getUTCMonth() !== mo - 1 || c.getUTCDate() !== d) throw new RangeError(`La fecha no existe: ${date}`);
+  return Math.round(ms / MS_PER_DAY);
+}
+const fromDayNumber = (day) => new Date(day * MS_PER_DAY).toISOString().slice(0, 10);
+const addDays = (date, days) => fromDayNumber(toDayNumber(date) + days);
+const weekday = (date) => new Date(toDayNumber(date) * MS_PER_DAY).getUTCDay(); // 0 = domingo
+const isoDate = (y, m, d) => fromDayNumber(Math.round(Date.UTC(y, m - 1, d) / MS_PER_DAY));
+const isValidDate = (date) => { try { toDayNumber(date); return true; } catch { return false; } };
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/* =================================================================== motor: festivos de Colombia */
+function easterSunday(year) { // algoritmo anónimo gregoriano
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return isoDate(year, month, day);
+}
+/** Ley Emiliani: si el festivo no cae lunes, pasa al lunes siguiente. */
+function nextMonday(date) { const wd = weekday(date); return wd === 1 ? date : addDays(date, (8 - wd) % 7); }
+/** Los 18 festivos del año: fijos, trasladables al lunes y los que dependen de la Pascua. */
+function colombiaHolidays(year) {
+  const easter = easterSunday(year);
+  const fixed = [[1, 1], [5, 1], [7, 20], [8, 7], [12, 8], [12, 25]].map(([m, d]) => isoDate(year, m, d));
+  const emiliani = [[1, 6], [3, 19], [6, 29], [8, 15], [10, 12], [11, 1], [11, 11]].map(([m, d]) => nextMonday(isoDate(year, m, d)));
+  const easterBased = [-3, -2, 43, 64, 71].map((n) => addDays(easter, n));
+  return [...new Set([...fixed, ...emiliani, ...easterBased])].sort();
+}
+
+/* =================================================================== motor: calendario laboral
+   Convierte entre fechas e "índice de día laboral desde el inicio del proyecto". */
+class WorkCalendar {
+  constructor(options = {}) {
+    this.weekdays = new Set(options.workingWeekdays || [1, 2, 3, 4, 5]);
+    this.holidaysForYear = options.holidaysForYear || colombiaHolidays;
+    this.cache = new Map();
+  }
+  isHoliday(date) {
+    const year = Number(date.slice(0, 4));
+    if (!this.cache.has(year)) this.cache.set(year, new Set(this.holidaysForYear(year)));
+    return this.cache.get(year).has(date);
+  }
+  isWorkingDay(date) { return this.weekdays.has(weekday(date)) && !this.isHoliday(date); }
+  nextWorkingDay(date) {
+    let day = toDayNumber(date);
+    for (let guard = 0; guard < 3660; guard++, day++) { const d = fromDayNumber(day); if (this.isWorkingDay(d)) return d; }
+    throw new RangeError(`No hay días laborales en 10 años desde ${date}`);
+  }
+  /** Fecha del día laboral número `offset` desde `start` (0 = primer día laboral). Acepta negativos. */
+  dateAt(start, offset) {
+    let day = toDayNumber(this.nextWorkingDay(start));
+    let remaining = offset;
+    const step = remaining >= 0 ? 1 : -1;
+    while (remaining !== 0) { day += step; if (this.isWorkingDay(fromDayNumber(day))) remaining -= step; }
+    return fromDayNumber(day);
+  }
+  /** Índice laboral de `date` respecto a `start` (inverso de dateAt). */
+  offsetOf(start, date) {
+    const from = toDayNumber(this.nextWorkingDay(start)), to = toDayNumber(this.nextWorkingDay(date));
+    let count = 0;
+    const step = to >= from ? 1 : -1;
+    for (let day = from; day !== to; day += step) if (this.isWorkingDay(fromDayNumber(day + (step > 0 ? 1 : 0)))) count += step;
+    return count;
+  }
+  /** Días laborales entre dos fechas, ambas incluidas. */
+  workingDaysBetween(from, to) {
+    if (to < from) return 0;
+    let n = 0;
+    for (let day = toDayNumber(from); day <= toDayNumber(to); day++) if (this.isWorkingDay(fromDayNumber(day))) n++;
+    return n;
+  }
+}
+
+/* =================================================================== motor: cronograma (ruta crítica)
+   Cada tarea ocupa [ES, EF) en días laborales; EF = ES + duración.
+   FS: S.ES >= P.EF + L · SS: S.ES >= P.ES + L · FF: S.EF >= P.EF + L · SF: S.EF >= P.ES + L
+   Pase hacia adelante (fechas tempranas), hacia atrás (tardías), holgura = LS - ES; crítica si holgura <= 0. */
+class ScheduleError extends Error {
+  constructor(code, message, taskIds = []) { super(message); this.name = 'ScheduleError'; this.code = code; this.taskIds = taskIds; }
+}
+
+function schedule(project, calendar = new WorkCalendar()) {
+  const tasks = project.tasks;
+  const byId = new Map();
+  for (const t of tasks) {
+    if (byId.has(t.id)) throw new ScheduleError('DUPLICATE_ID', `El id ${t.id} está repetido`, [t.id]);
+    byId.set(t.id, t);
+  }
+  const children = new Map();
+  for (const t of tasks) {
+    if (t.parentId == null) continue;
+    if (!byId.has(t.parentId)) throw new ScheduleError('UNKNOWN_PARENT', `"${t.name}" tiene una tarea padre inexistente`, [t.id]);
+    if (!children.has(t.parentId)) children.set(t.parentId, []);
+    children.get(t.parentId).push(t.id);
+  }
+  for (const t of tasks) {
+    const seen = new Set([t.id]);
+    let p = t.parentId;
+    while (p != null) {
+      if (seen.has(p)) throw new ScheduleError('PARENT_CYCLE', 'La EDT tiene un ciclo', [...seen]);
+      seen.add(p);
+      p = byId.get(p) ? byId.get(p).parentId : null;
+    }
+  }
+  const isSummary = (id) => (children.get(id) || []).length > 0;
+
+  const leaves = new Map();
+  for (const t of tasks) {
+    const deps = (t.dependencies || []).map((d) => ({ predecessorId: d.predecessorId, type: d.type || 'FS', lag: d.lag || 0 }));
+    if (isSummary(t.id)) {
+      if (deps.length) throw new ScheduleError('SUMMARY_DEPENDENCY', `La tarea resumen "${t.name}" no puede tener predecesoras; ponlas en sus subtareas`, [t.id]);
+      continue;
+    }
+    if (!Number.isInteger(t.duration) || t.duration < 0) throw new ScheduleError('INVALID_DURATION', `La duración de "${t.name}" debe ser un entero >= 0`, [t.id]);
+    for (const d of deps) {
+      if (d.predecessorId === t.id) throw new ScheduleError('SELF_DEPENDENCY', `"${t.name}" depende de sí misma`, [t.id]);
+      if (!byId.has(d.predecessorId)) throw new ScheduleError('UNKNOWN_TASK', `"${t.name}" depende de una tarea inexistente`, [t.id]);
+      if (isSummary(d.predecessorId)) throw new ScheduleError('SUMMARY_DEPENDENCY', `"${t.name}" depende de la tarea resumen "${byId.get(d.predecessorId).name}"; usa una de sus subtareas`, [t.id, d.predecessorId]);
+      if (!Number.isInteger(d.lag)) throw new ScheduleError('INVALID_LAG', `El retraso hacia "${t.name}" debe ser entero`, [t.id]);
+    }
+    leaves.set(t.id, { task: t, duration: t.duration, deps, es: 0, ef: 0, ls: 0, lf: 0 });
+  }
+
+  // orden topológico (Kahn)
+  const successors = new Map();
+  const indegree = new Map();
+  for (const [id, leaf] of leaves) {
+    indegree.set(id, leaf.deps.length);
+    for (const d of leaf.deps) {
+      if (!successors.has(d.predecessorId)) successors.set(d.predecessorId, []);
+      successors.get(d.predecessorId).push({ id, dep: d });
+    }
+  }
+  const order = [];
+  const queue = [...leaves.keys()].filter((id) => indegree.get(id) === 0);
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    for (const s of successors.get(id) || []) {
+      indegree.set(s.id, indegree.get(s.id) - 1);
+      if (indegree.get(s.id) === 0) queue.push(s.id);
+    }
+  }
+  if (order.length !== leaves.size) {
+    // quitar las que solo dependen del ciclo: quedan las que están en él
+    const remaining = new Set([...leaves.keys()].filter((id) => !order.includes(id)));
+    const outdeg = new Map([...remaining].map((id) => [id, (successors.get(id) || []).filter((s) => remaining.has(s.id)).length]));
+    const q = [...remaining].filter((id) => outdeg.get(id) === 0);
+    while (q.length) {
+      const id = q.shift();
+      remaining.delete(id);
+      for (const d of leaves.get(id).deps) {
+        if (!remaining.has(d.predecessorId)) continue;
+        outdeg.set(d.predecessorId, outdeg.get(d.predecessorId) - 1);
+        if (outdeg.get(d.predecessorId) === 0) q.push(d.predecessorId);
+      }
+    }
+    const cyclic = [...remaining];
+    throw new ScheduleError('CYCLE', `Las predecesoras forman un ciclo entre: ${cyclic.map((id) => leaves.get(id).task.name).join(', ')}`, cyclic);
+  }
+
+  const start = calendar.nextWorkingDay(project.startDate);
+  for (const id of order) {
+    const leaf = leaves.get(id);
+    let es = 0;
+    // en un hito (que vale "al final del día") la restricción lo deja en esa fecha
+    if (leaf.task.startNoEarlierThan) es = Math.max(es, calendar.offsetOf(start, leaf.task.startNoEarlierThan) + (leaf.duration === 0 ? 1 : 0));
+    for (const d of leaf.deps) {
+      const p = leaves.get(d.predecessorId);
+      const bound = d.type === 'FS' ? p.ef + d.lag : d.type === 'SS' ? p.es + d.lag : d.type === 'FF' ? p.ef + d.lag - leaf.duration : p.es + d.lag - leaf.duration;
+      es = Math.max(es, bound);
+    }
+    leaf.es = es;
+    leaf.ef = es + leaf.duration;
+  }
+  const projectEnd = Math.max(0, ...[...leaves.values()].map((l) => l.ef));
+  for (const id of [...order].reverse()) {
+    const leaf = leaves.get(id);
+    let lf = projectEnd;
+    for (const s of successors.get(id) || []) {
+      const su = leaves.get(s.id), d = s.dep;
+      const bound = d.type === 'FS' ? su.ls - d.lag : d.type === 'SS' ? su.ls - d.lag + leaf.duration : d.type === 'FF' ? su.lf - d.lag : su.lf - d.lag + leaf.duration;
+      lf = Math.min(lf, bound);
+    }
+    leaf.lf = lf;
+    leaf.ls = lf - leaf.duration;
+  }
+
+  const result = {};
+  for (const [id, leaf] of leaves) {
+    const milestone = leaf.duration === 0;
+    const slack = leaf.ls - leaf.es;
+    // un hito vale "al final del día anterior": se muestra el día en que termina su predecesora
+    const startDate = milestone ? calendar.dateAt(start, Math.max(leaf.es - 1, 0)) : calendar.dateAt(start, leaf.es);
+    result[id] = {
+      id, isSummary: false, isMilestone: milestone, duration: leaf.duration,
+      earlyStart: leaf.es, earlyFinish: leaf.ef, lateStart: leaf.ls, lateFinish: leaf.lf,
+      totalSlack: slack, critical: slack <= 0,
+      start: startDate, finish: milestone ? startDate : calendar.dateAt(start, leaf.ef - 1),
+    };
+  }
+  const rollup = (id) => {
+    if (result[id]) return result[id];
+    const parts = (children.get(id) || []).map(rollup).filter(Boolean);
+    if (!parts.length) return undefined;
+    const es = Math.min(...parts.map((p) => p.earlyStart)), ef = Math.max(...parts.map((p) => p.earlyFinish));
+    result[id] = {
+      id, isSummary: true, isMilestone: false, duration: ef - es, earlyStart: es, earlyFinish: ef,
+      lateStart: Math.min(...parts.map((p) => p.lateStart)), lateFinish: Math.max(...parts.map((p) => p.lateFinish)),
+      totalSlack: Math.min(...parts.map((p) => p.totalSlack)), critical: parts.some((p) => p.critical),
+      start: parts.map((p) => p.start).sort()[0], finish: parts.map((p) => p.finish).sort().slice(-1)[0],
+    };
+    return result[id];
+  };
+  for (const t of tasks) if (isSummary(t.id)) rollup(t.id);
+  const leafResults = [...leaves.keys()].map((id) => result[id]);
+  const finishDate = leafResults.length ? leafResults.map((r) => r.finish).sort().slice(-1)[0] : start;
+  const criticalPath = leafResults.filter((r) => r.critical)
+    .sort((a, b) => a.earlyStart - b.earlyStart || a.earlyFinish - b.earlyFinish).map((r) => r.id);
+  return { startDate: start, finishDate, durationDays: projectEnd, tasks: result, criticalPath };
+}
+
+/* =================================================================== modelo: plan editable y EDT
+   El orden de `tasks` es el orden de las filas; la EDT sale de parentId.
+   Regla que mantienen todas las operaciones: las subtareas van justo debajo de su tarea resumen. */
+const clonePlan = (plan) => JSON.parse(JSON.stringify(plan));
+const emptyPlan = (startDate) => ({ name: 'Nuevo proyecto', startDate, tasks: [], nextId: 1 });
+
+function levelOf(plan, index) {
+  const byId = new Map(plan.tasks.map((t) => [t.id, t]));
+  let level = 0, parent = plan.tasks[index] && plan.tasks[index].parentId;
+  while (parent != null) { level++; parent = byId.get(parent) ? byId.get(parent).parentId : null; }
+  return level;
+}
+const hasChildren = (plan, id) => plan.tasks.some((t) => t.parentId === id);
+function subtreeEnd(plan, index) {
+  const level = levelOf(plan, index);
+  let end = index;
+  while (end + 1 < plan.tasks.length && levelOf(plan, end + 1) > level) end++;
+  return end;
+}
+function ancestorsOf(plan, index) {
+  const byId = new Map(plan.tasks.map((t) => [t.id, t]));
+  const out = [];
+  let parent = plan.tasks[index] && plan.tasks[index].parentId;
+  while (parent != null) { out.push(parent); parent = byId.get(parent) ? byId.get(parent).parentId : null; }
+  return out;
+}
+/** Una tarea que pasa a ser resumen pierde sus predecesoras y las que apuntaban a ella. */
+function becomeSummary(plan, id) {
+  for (const t of plan.tasks) {
+    if (t.id === id) t.dependencies = [];
+    else if (t.dependencies) t.dependencies = t.dependencies.filter((d) => d.predecessorId !== id);
+  }
+}
+function insertTask(plan, afterIndex, name = 'Nueva tarea', duration = 1) {
+  const next = clonePlan(plan);
+  const task = { id: `t${next.nextId++}`, name, duration, dependencies: [] };
+  let index;
+  if (afterIndex == null || afterIndex < 0 || afterIndex >= next.tasks.length) index = next.tasks.length;
+  else { task.parentId = next.tasks[afterIndex].parentId || null; index = subtreeEnd(next, afterIndex) + 1; }
+  next.tasks.splice(index, 0, task);
+  return { plan: next, index };
+}
+function deleteTask(plan, index) {
+  const next = clonePlan(plan);
+  const end = subtreeEnd(next, index);
+  const removed = new Set(next.tasks.slice(index, end + 1).map((t) => t.id));
+  next.tasks.splice(index, end - index + 1);
+  for (const t of next.tasks) if (t.dependencies) t.dependencies = t.dependencies.filter((d) => !removed.has(d.predecessorId));
+  return next;
+}
+function indentTask(plan, index) {
+  const level = levelOf(plan, index);
+  let prev = index - 1;
+  while (prev >= 0 && levelOf(plan, prev) > level) prev--;
+  if (prev < 0 || levelOf(plan, prev) !== level) return plan;
+  const next = clonePlan(plan);
+  next.tasks[index].parentId = next.tasks[prev].id;
+  becomeSummary(next, next.tasks[prev].id);
+  return next;
+}
+/** Quitar sangría: como en MS Project, las hermanas de abajo pasan a ser sus subtareas. */
+function outdentTask(plan, index) {
+  if (!plan.tasks[index] || plan.tasks[index].parentId == null) return plan;
+  const next = clonePlan(plan);
+  const me = next.tasks[index];
+  const oldParent = me.parentId;
+  const parentTask = next.tasks.find((t) => t.id === oldParent);
+  const grandParent = parentTask ? parentTask.parentId || null : null;
+  const end = subtreeEnd(next, index);
+  let moved = false;
+  for (let i = end + 1; i < next.tasks.length; i++) {
+    const t = next.tasks[i];
+    if (t.parentId === oldParent) { t.parentId = me.id; moved = true; } else if (!ancestorsOf(next, i).includes(oldParent)) break;
+  }
+  me.parentId = grandParent;
+  if (moved) becomeSummary(next, me.id);
+  return next;
+}
+function moveTask(plan, index, direction) {
+  const level = levelOf(plan, index);
+  const parent = plan.tasks[index].parentId || null;
+  const end = subtreeEnd(plan, index);
+  const size = end - index + 1;
+  if (direction < 0) {
+    let prev = index - 1;
+    while (prev >= 0 && levelOf(plan, prev) > level) prev--;
+    if (prev < 0 || (plan.tasks[prev].parentId || null) !== parent) return { plan, index };
+    const next = clonePlan(plan);
+    const block = next.tasks.splice(index, size);
+    next.tasks.splice(prev, 0, ...block);
+    return { plan: next, index: prev };
+  }
+  const sibling = end + 1;
+  if (sibling >= plan.tasks.length || (plan.tasks[sibling].parentId || null) !== parent) return { plan, index };
+  const siblingEnd = subtreeEnd(plan, sibling);
+  const next = clonePlan(plan);
+  const block = next.tasks.splice(index, size);
+  const at = siblingEnd - size + 1;
+  next.tasks.splice(at, 0, ...block);
+  return { plan: next, index: at };
+}
+function updateTask(plan, id, patch) {
+  const next = clonePlan(plan);
+  const t = next.tasks.find((x) => x.id === id);
+  if (t) Object.assign(t, patch);
+  return next;
+}
+/* Copiar / pegar filas. El bloque copiado lleva la estructura completa (no el texto de las celdas):
+   nombre, duración, restricción, % real, ★, jerarquía relativa y predecesoras. No lleva el historial de reprogramaciones
+   (es de la tarea original) ni fechas de línea base o cortes (una tarea nueva no tiene). */
+const CLIP_FORMAT = 'planificador-tareas';
+/** ids: filas seleccionadas; una tarea resumen se copia con todo su subárbol. Devuelve el bloque en orden de filas. */
+function copyTasks(plan, ids) {
+  const want = new Set(ids), take = new Set();
+  plan.tasks.forEach((t, i) => { if (want.has(t.id)) for (let k = i; k <= subtreeEnd(plan, i); k++) take.add(plan.tasks[k].id); });
+  const byId = new Map(plan.tasks.map((t) => [t.id, t]));
+  const external = {}; // predecesoras fuera del bloque: id → nombre (para pegarlas solo si siguen siendo la misma tarea)
+  const tasks = plan.tasks.filter((t) => take.has(t.id)).map((t) => {
+    const c = { id: t.id, name: t.name, duration: t.duration, dependencies: (t.dependencies || []).map((d) => ({ predecessorId: d.predecessorId, type: d.type || 'FS', lag: d.lag || 0 })) };
+    if (t.parentId != null && take.has(t.parentId)) c.parentId = t.parentId;
+    if (t.startNoEarlierThan) c.startNoEarlierThan = t.startNoEarlierThan;
+    if (t.percentComplete != null) c.percentComplete = t.percentComplete;
+    if (t.key) c.key = true;
+    for (const d of c.dependencies) if (!take.has(d.predecessorId) && byId.has(d.predecessorId)) external[d.predecessorId] = byId.get(d.predecessorId).name;
+    return c;
+  });
+  return { format: CLIP_FORMAT, version: 1, tasks, external };
+}
+/**
+ * Pega el bloque como tareas nuevas debajo de la fila `afterIndex` (después de su subárbol, como "+ Tarea") o al final.
+ * Ids nuevos; jerarquía y vínculos internos se rehacen con ellos; las raíces del bloque toman el padre de la posición.
+ * Una predecesora externa se conserva solo si en este plan existe la misma tarea (mismo id y nombre) y no es resumen.
+ */
+function pasteTasks(plan, clip, afterIndex = null) {
+  const next = clonePlan(plan);
+  const existing = new Set(next.tasks.map((t) => t.id));
+  const map = new Map();
+  for (const t of clip.tasks) {
+    while (existing.has(`t${next.nextId}`)) next.nextId++;
+    const id = `t${next.nextId++}`;
+    existing.add(id);
+    map.set(t.id, id);
+  }
+  let index = next.tasks.length, rootParent = null;
+  if (afterIndex != null && afterIndex >= 0 && afterIndex < next.tasks.length) {
+    rootParent = next.tasks[afterIndex].parentId || null;
+    index = subtreeEnd(next, afterIndex) + 1;
+  }
+  const byId = new Map(next.tasks.map((t) => [t.id, t]));
+  // jerarquía relativa: el padre debe ser un ancestro abierto del bloque (subárboles contiguos, invariante de la EDT);
+  // si no lo es, la tarea pasa a ser raíz del bloque
+  const parentOf = new Map(), stack = [];
+  for (const t of clip.tasks) {
+    while (stack.length && stack[stack.length - 1] !== t.parentId) stack.pop();
+    parentOf.set(t.id, t.parentId != null && stack.length ? t.parentId : null);
+    stack.push(t.id);
+  }
+  const blockSummary = new Set([...parentOf.values()].filter((p) => p != null));
+  let dropped = 0;
+  const added = clip.tasks.map((t) => {
+    const n = { id: map.get(t.id), name: t.name, duration: t.duration, dependencies: [] };
+    const parent = parentOf.get(t.id) != null ? map.get(parentOf.get(t.id)) : rootParent;
+    if (parent) n.parentId = parent;
+    if (t.startNoEarlierThan) n.startNoEarlierThan = t.startNoEarlierThan;
+    if (t.percentComplete != null) n.percentComplete = t.percentComplete;
+    if (t.key) n.key = true;
+    if (blockSummary.has(t.id)) { dropped += (t.dependencies || []).length; return n; } // un resumen no tiene predecesoras
+    for (const d of t.dependencies || []) {
+      const ext = byId.get(d.predecessorId);
+      if (map.has(d.predecessorId) && !blockSummary.has(d.predecessorId)) n.dependencies.push({ predecessorId: map.get(d.predecessorId), type: d.type || 'FS', lag: d.lag || 0 });
+      else if (!map.has(d.predecessorId) && ext && ext.name === (clip.external || {})[d.predecessorId] && !hasChildren(next, ext.id)) n.dependencies.push({ predecessorId: ext.id, type: d.type || 'FS', lag: d.lag || 0 });
+      else dropped++;
+    }
+    return n;
+  });
+  next.tasks.splice(index, 0, ...added);
+  return { plan: next, index, ids: added.map((t) => t.id), dropped };
+}
+
+/** Numeración EDT: 1, 1.1, 1.2, 2 ... */
+function wbsCodes(plan) {
+  const counters = [];
+  return plan.tasks.map((_, i) => {
+    const level = levelOf(plan, i);
+    counters.length = level + 1;
+    counters[level] = (counters[level] || 0) + 1;
+    for (let l = 0; l < level; l++) if (!counters[l]) counters[l] = 1;
+    return counters.slice(0, level + 1).join('.');
+  });
+}
+
+/* =================================================================== modelo: predecesoras estilo MS Project
+   "2, 3CC+2, 4FF-1": número de fila + tipo (FC, CC, FF, CF o en inglés FS, SS, FF, SF) + retraso en días. */
+const TYPE_ALIASES = { FS: 'FS', FC: 'FS', SS: 'SS', CC: 'SS', FF: 'FF', SF: 'SF', CF: 'SF' };
+const TYPE_TO_ES = { FS: 'FC', SS: 'CC', FF: 'FF', SF: 'CF' };
+class PredecessorSyntaxError extends Error {}
+function parsePredecessors(text, rowToId) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of text.split(/[;,]/)) {
+    const item = raw.trim();
+    if (!item) continue;
+    const m = /^(\d+)\s*([a-z]{2})?\s*(?:([+-])\s*(\d+)\s*(?:d|dia|dias|día|días)?)?$/i.exec(item);
+    if (!m) throw new PredecessorSyntaxError(`No entiendo "${item}". Ejemplos: 2, 3CC+2, 4FF-1`);
+    const row = Number(m[1]);
+    const id = rowToId(row);
+    if (!id) throw new PredecessorSyntaxError(`La fila ${row} no existe`);
+    const type = m[2] ? TYPE_ALIASES[m[2].toUpperCase()] : 'FS';
+    if (!type) throw new PredecessorSyntaxError(`Tipo de vínculo desconocido "${m[2]}". Usa FC, CC, FF o CF`);
+    if (seen.has(id)) throw new PredecessorSyntaxError(`La fila ${row} está repetida`);
+    seen.add(id);
+    out.push({ predecessorId: id, type, lag: m[4] ? Number(m[4]) * (m[3] === '-' ? -1 : 1) : 0 });
+  }
+  return out;
+}
+function formatPredecessors(deps, idToRow) {
+  return (deps || []).map((d) => {
+    const row = idToRow(d.predecessorId);
+    if (row == null) return null;
+    const type = d.type || 'FS', lag = d.lag || 0;
+    return `${row}${type === 'FS' && lag === 0 ? '' : TYPE_TO_ES[type]}${lag === 0 ? '' : (lag > 0 ? '+' : '') + lag}`;
+  }).filter((x) => x !== null).join(', ');
+}
+
+function samplePlan(startDate, calendar = new WorkCalendar(), today = todayIso()) {
+  const plan = {
+    name: 'Proyecto de ejemplo', startDate, nextId: 14, tasks: [
+      { id: 't1', name: 'Planeación', duration: 0 },
+      { id: 't2', name: 'Levantamiento de requisitos', duration: 4, parentId: 't1', percentComplete: 100 },
+      { id: 't3', name: 'Diseño de la solución', duration: 3, parentId: 't1', dependencies: [{ predecessorId: 't2' }], percentComplete: 100 },
+      { id: 't4', name: 'Aprobación del diseño', duration: 0, parentId: 't1', dependencies: [{ predecessorId: 't3' }], key: true, percentComplete: 100 },
+      { id: 't5', name: 'Construcción', duration: 0 },
+      { id: 't6', name: 'Backend', duration: 8, parentId: 't5', dependencies: [{ predecessorId: 't4' }], percentComplete: 75 },
+      { id: 't7', name: 'Frontend', duration: 6, parentId: 't5', dependencies: [{ predecessorId: 't6', type: 'SS', lag: 2 }], percentComplete: 20 },
+      { id: 't8', name: 'Integraciones', duration: 3, parentId: 't5', dependencies: [{ predecessorId: 't6' }] },
+      { id: 't9', name: 'Integraciones listas', duration: 0, parentId: 't5', dependencies: [{ predecessorId: 't8' }] },
+      { id: 't10', name: 'Pruebas', duration: 0 },
+      { id: 't11', name: 'Pruebas funcionales', duration: 4, parentId: 't10', dependencies: [{ predecessorId: 't7' }, { predecessorId: 't8' }] },
+      { id: 't12', name: 'Pruebas de rendimiento', duration: 2, parentId: 't10', dependencies: [{ predecessorId: 't11', type: 'SS', lag: 1 }] },
+      { id: 't13', name: 'Salida a producción', duration: 0, dependencies: [{ predecessorId: 't11' }, { predecessorId: 't12' }], key: true },
+    ],
+  };
+  // línea base fijada al inicio, con el plan original
+  const original = schedule(plan, calendar);
+  let withBaseline = createBaseline(plan, original, 'Línea base inicial');
+  withBaseline.baselines[0].createdAt = startDate;
+  withBaseline = fixBaseline(withBaseline);
+  withBaseline.baselines[0].fixedAt = startDate;
+  // el backend se reprogramó: tomó 3 días más
+  const before = original.tasks.t6;
+  const delayed = updateTask(withBaseline, 't6', { duration: 11 });
+  const after = schedule(delayed, calendar).tasks.t6;
+  const backend = delayed.tasks.find((t) => t.id === 't6');
+  backend.history = [{ at: calendar.dateAt(startDate, 10), prevStart: before.start, prevFinish: before.finish, start: after.start, finish: after.finish,
+    reason: 'La integración con el core bancario tomó más de lo previsto' }];
+  // cortes semanales registrados hasta hoy (avance real algo por debajo de lo esperado)
+  const current = schedule(delayed, calendar);
+  delayed.cortes = [];
+  for (const d of cutDates(startDate, today, 'semanal')) {
+    if (d > today) break;
+    const tasks = {};
+    for (const t of delayed.tasks) {
+      if (hasChildren(delayed, t.id)) continue;
+      const s = current.tasks[t.id];
+      const expected = expectedPct(s.start, s.finish, s.duration, d, calendar);
+      tasks[t.id] = Math.min(t.percentComplete || 0, Math.round(expected * (s.duration === 0 ? 1 : 0.85)));
+    }
+    delayed.cortes.push({ date: d, recordedAt: d, tasks });
+  }
+  return delayed;
+}
+
+/* =================================================================== avance a la fecha de corte
+   Real = % completado registrado. Planificado = días laborales transcurridos / duración (un hito vale 100
+   si su fecha ya pasó). Resúmenes y proyecto: promedio ponderado por duración, como MS Project. */
+const PROJECT_KEY = '__proyecto';
+const STATUS_LABEL = { completado: 'Completado', 'al-dia': 'Al día', 'en-riesgo': 'En riesgo', atrasado: 'Atrasado', 'sin-iniciar': 'Sin iniciar' };
+const STATUS_ICON = { completado: '✓', 'al-dia': '✓', 'en-riesgo': '!', atrasado: '!', 'sin-iniciar': '–' };
+const RISK_THRESHOLD = -5, LATE_THRESHOLD = -15;
+function statusOf(actual, planned) {
+  if (actual >= 100) return 'completado';
+  if (planned === 0 && actual === 0) return 'sin-iniciar';
+  const v = actual - planned;
+  return v < LATE_THRESHOLD ? 'atrasado' : v < RISK_THRESHOLD ? 'en-riesgo' : 'al-dia';
+}
+const round1 = (n) => Math.round(n * 10) / 10;
+
+/** % esperado de una tarea a una fecha según sus fechas: 0 antes de empezar, 100 desde su fin; un hito vale 100 desde su fecha. */
+function expectedPct(start, finish, duration, date, calendar) {
+  if (duration === 0) return finish <= date ? 100 : 0;
+  if (date < start) return 0;
+  if (date >= finish) return 100;
+  return (calendar.workingDaysBetween(start, date) / duration) * 100;
+}
+
+/**
+ * Avance a una fecha. Por tarea, resumen y proyecto (PROJECT_KEY):
+ *   actual          % real registrado (o el de un corte, si se pasa `percents`)
+ *   plannedCurrent  % esperado con las fechas actuales del cronograma
+ *   plannedLB       % esperado según la línea base (null si no hay línea base o la tarea no está en ella)
+ *   planned         el que se usa para la desviación: plannedLB si existe, si no plannedCurrent
+ * Agregados ponderados por duración (los de línea base, por la duración de la línea base).
+ */
+function computeProgress(plan, result, calendar, statusDate, baseline = null, percents = null) {
+  const lb = baseline ? baseline.tasks : {};
+  const leaf = new Map();
+  for (const t of plan.tasks) {
+    if (hasChildren(plan, t.id)) continue;
+    const s = result.tasks[t.id];
+    if (!s) continue;
+    const actual = Math.min(Math.max((percents ? percents[t.id] : t.percentComplete) || 0, 0), 100);
+    const b = lb[t.id];
+    leaf.set(t.id, {
+      actual, current: expectedPct(s.start, s.finish, s.duration, statusDate, calendar), weight: s.duration,
+      lb: b ? expectedPct(b.start, b.finish, b.duration, statusDate, calendar) : null, lbWeight: b ? b.duration : 0,
+    });
+  }
+  const childrenOf = new Map();
+  for (const t of plan.tasks) {
+    const k = t.parentId || PROJECT_KEY;
+    if (!childrenOf.has(k)) childrenOf.set(k, []);
+    childrenOf.get(k).push(t.id);
+  }
+  const leavesUnder = (id) => (childrenOf.get(id) || []).flatMap((c) => (leaf.has(c) ? [c] : leavesUnder(c)));
+  /** promedio ponderado; si todos los pesos son 0 (solo hitos), promedio simple */
+  const avg = (values, value, weight) => {
+    if (!values.length) return null;
+    const weighted = values.filter((v) => weight(v) > 0);
+    const pool = weighted.length ? weighted : values;
+    const w = (v) => (weighted.length ? weight(v) : 1);
+    return pool.reduce((a, v) => a + w(v) * value(v), 0) / pool.reduce((a, v) => a + w(v), 0);
+  };
+  const aggregate = (ids) => {
+    const values = ids.map((id) => leaf.get(id)).filter(Boolean);
+    const withLB = values.filter((v) => v.lb !== null);
+    return {
+      actual: avg(values, (v) => v.actual, (v) => v.weight) || 0,
+      current: avg(values, (v) => v.current, (v) => v.weight) || 0,
+      lb: withLB.length ? avg(withLB, (v) => v.lb, (v) => v.lbWeight) : null,
+    };
+  };
+  const out = {};
+  const put = (id, v) => {
+    const actual = round1(v.actual), plannedCurrent = round1(v.current), plannedLB = v.lb === null ? null : round1(v.lb);
+    const planned = plannedLB === null ? plannedCurrent : plannedLB;
+    out[id] = { actual, planned, plannedCurrent, plannedLB, variance: round1(actual - planned), status: statusOf(actual, planned) };
+  };
+  for (const [id, v] of leaf) put(id, v);
+  for (const t of plan.tasks) if (hasChildren(plan, t.id)) put(t.id, aggregate(leavesUnder(t.id)));
+  put(PROJECT_KEY, aggregate([...leaf.keys()]));
+  return out;
+}
+
+const MILESTONE_LABEL = { cumplido: 'Cumplido', vencido: 'Vencido', proximo: 'Próximo', pendiente: 'Pendiente' };
+const MILESTONE_ICON = { cumplido: '✓', vencido: '!', proximo: '◷', pendiente: '–' };
+const UPCOMING_DAYS = 14;
+function milestoneStatus(date, percentComplete, statusDate, upcomingLimit) {
+  if (percentComplete >= 100) return 'cumplido';
+  if (date < statusDate) return 'vencido';
+  if (date <= upcomingLimit) return 'proximo';
+  return 'pendiente';
+}
+function listMilestones(plan, result, statusDate, baseline = null, calendar = new WorkCalendar()) {
+  const limit = addDays(statusDate, UPCOMING_DAYS);
+  const byId = new Map(plan.tasks.map((t) => [t.id, t]));
+  const section = (t) => {
+    let top = null, cur = t;
+    while (cur && cur.parentId) { top = cur.parentId; cur = byId.get(cur.parentId); }
+    return top ? byId.get(top).name : null;
+  };
+  return plan.tasks.map((t, i) => ({ t, i, s: result.tasks[t.id] }))
+    .filter((x) => x.s && x.s.isMilestone)
+    .map(({ t, i, s }) => ({ id: t.id, row: i + 1, name: t.name, date: s.finish, key: !!t.key, critical: s.critical,
+      status: milestoneStatus(s.finish, t.percentComplete || 0, statusDate, limit), section: section(t),
+      baselineDate: baseline && baseline.tasks[t.id] ? baseline.tasks[t.id].finish : null,
+      varianceDays: baseline && baseline.tasks[t.id] ? calendar.offsetOf(baseline.tasks[t.id].finish, s.finish) : null }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.row - b.row);
+}
+
+/* =================================================================== línea base, reprogramaciones y cortes
+   Línea base: foto de inicio/fin/duración de cada tarea. Se crea en borrador (editable), se fija (inmutable)
+   y se puede crear otra (LB 2, LB 3...); se compara contra la última fijada (o la elegida).
+   Cortes: foto del % real de cada tarea en una fecha; alimentan la línea "real" de la curva S. */
+class BaselineError extends Error {}
+const baselinesOf = (plan) => plan.baselines || [];
+const draftBaseline = (plan) => baselinesOf(plan).find((b) => b.status === 'borrador') || null;
+const hasFixedBaseline = (plan) => baselinesOf(plan).some((b) => b.status === 'fijada');
+/** Línea base contra la que se compara: la elegida, o la última fijada, o el borrador si aún no hay fijada. */
+function currentBaseline(plan, id = null) {
+  const list = baselinesOf(plan);
+  const chosen = id && list.find((b) => b.id === id);
+  if (chosen) return chosen;
+  const fixed = list.filter((b) => b.status === 'fijada');
+  return fixed.length ? fixed[fixed.length - 1] : draftBaseline(plan);
+}
+const baselineLabel = (b) => (b ? `LB ${b.number}${b.status === 'borrador' ? ' (borrador)' : ''}` : 'sin línea base');
+
+function createBaseline(plan, result, reason = '') {
+  if (draftBaseline(plan)) throw new BaselineError('Ya hay una línea base en borrador: fíjala o descártala primero.');
+  const next = clonePlan(plan);
+  const number = Math.max(0, ...baselinesOf(next).map((b) => b.number)) + 1;
+  const tasks = {};
+  for (const t of next.tasks) {
+    if (hasChildren(next, t.id)) continue;
+    const s = result.tasks[t.id];
+    if (s) tasks[t.id] = { start: s.start, finish: s.finish, duration: s.duration };
+  }
+  next.baselines = [...baselinesOf(next), { id: `lb${number}`, number, status: 'borrador', createdAt: todayIso(), reason, tasks }];
+  return next;
+}
+/** Cambia las fechas de una tarea en la línea base en borrador. En un hito solo cuenta una fecha. */
+function setBaselineDates(plan, taskId, start, finish, calendar) {
+  const next = clonePlan(plan);
+  const d = draftBaseline(next);
+  if (!d) throw new BaselineError('La línea base está fijada: no se puede modificar.');
+  const cur = d.tasks[taskId];
+  if (!cur) throw new BaselineError('Esta tarea no está en la línea base.');
+  if (!isValidDate(start) || !isValidDate(finish)) throw new BaselineError('Fecha inválida.');
+  if (cur.duration === 0) { d.tasks[taskId] = { start: finish, finish, duration: 0 }; return next; }
+  const s = calendar.nextWorkingDay(start);
+  if (finish < s) throw new BaselineError('El fin de la línea base no puede ser antes de su inicio.');
+  const duration = calendar.workingDaysBetween(s, finish);
+  d.tasks[taskId] = { start: s, finish: calendar.dateAt(s, duration - 1), duration };
+  return next;
+}
+function fixBaseline(plan) {
+  const next = clonePlan(plan);
+  const d = draftBaseline(next);
+  if (!d) throw new BaselineError('No hay una línea base en borrador para fijar.');
+  d.status = 'fijada';
+  d.fixedAt = todayIso();
+  return next;
+}
+function discardDraftBaseline(plan) {
+  const next = clonePlan(plan);
+  next.baselines = baselinesOf(next).filter((b) => b.status !== 'borrador');
+  return next;
+}
+/** Fechas de la línea base por tarea, con las tareas resumen calculadas de sus subtareas. */
+function baselineDates(plan, baseline, calendar) {
+  if (!baseline) return {};
+  const out = { ...baseline.tasks };
+  const rollup = (id) => {
+    if (out[id]) return out[id];
+    const parts = plan.tasks.filter((t) => t.parentId === id).map((t) => rollup(t.id)).filter(Boolean);
+    if (!parts.length) return null;
+    const start = parts.map((x) => x.start).sort()[0], finish = parts.map((x) => x.finish).sort().slice(-1)[0];
+    out[id] = { start, finish, duration: calendar.workingDaysBetween(start, finish), summary: true };
+    return out[id];
+  };
+  for (const t of plan.tasks) if (hasChildren(plan, t.id)) rollup(t.id);
+  return out;
+}
+/** Días laborales de diferencia (positivo = atraso) entre una fecha de línea base y la actual. */
+const varianceDays = (calendar, baselineDate, currentDate) => calendar.offsetOf(baselineDate, currentDate);
+
+/** Registra una reprogramación en el historial de la tarea. */
+function addReschedule(plan, taskId, entry) {
+  const next = clonePlan(plan);
+  const t = next.tasks.find((x) => x.id === taskId);
+  if (t) t.history = [...(t.history || []), entry];
+  return next;
+}
+
+/** Guarda (o reemplaza) el corte de esa fecha con el % real actual de cada tarea. */
+function recordCut(plan, date) {
+  const next = clonePlan(plan);
+  const tasks = {};
+  for (const t of next.tasks) if (!hasChildren(next, t.id)) tasks[t.id] = Math.min(Math.max(t.percentComplete || 0, 0), 100);
+  next.cortes = [...(next.cortes || []).filter((c) => c.date !== date), { date, recordedAt: todayIso(), tasks }].sort((a, b) => a.date.localeCompare(b.date));
+  return next;
+}
+function deleteCut(plan, date) {
+  const next = clonePlan(plan);
+  next.cortes = (next.cortes || []).filter((c) => c.date !== date);
+  return next;
+}
+
+/** Fechas de corte entre dos fechas: semanal (viernes), quincenal (viernes alternos) o mensual (último día del mes). */
+function cutDates(from, to, frequency) {
+  const out = [];
+  if (frequency === 'mensual') {
+    let y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7));
+    for (let guard = 0; guard < 240; guard++) {
+      const last = addDays(isoDate(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1, 1), -1);
+      out.push(last);
+      if (last >= to) break;
+      m = m === 12 ? 1 : m + 1;
+      if (m === 1) y++;
+    }
+    return out;
+  }
+  const step = frequency === 'quincenal' ? 14 : 7;
+  let d = addDays(from, (5 - weekday(from) + 7) % 7); // primer viernes
+  for (let guard = 0; guard < 600; guard++) {
+    out.push(d);
+    if (d >= to) break;
+    d = addDays(d, step);
+  }
+  return out;
+}
+
+/** Curva S: % esperado (línea base y fechas actuales) en cada fecha de corte y % real de los cortes registrados. */
+function sCurve(plan, result, calendar, baseline, scope = PROJECT_KEY, frequency = 'semanal') {
+  const lb = baselineDates(plan, baseline, calendar);
+  const lbAll = Object.values(lb);
+  const cortes = plan.cortes || [];
+  const from = [result.startDate, ...lbAll.map((x) => x.start)].sort()[0];
+  const to = [result.finishDate, ...lbAll.map((x) => x.finish), ...cortes.map((c) => c.date)].sort().slice(-1)[0];
+  const expected = cutDates(from, to, frequency).map((date) => {
+    const p = computeProgress(plan, result, calendar, date, baseline)[scope];
+    return { date, lb: p ? p.plannedLB : null, current: p ? p.plannedCurrent : 0 };
+  });
+  const real = cortes.map((c) => {
+    const p = computeProgress(plan, result, calendar, c.date, baseline, c.tasks)[scope];
+    return { date: c.date, real: p ? p.actual : 0 };
+  });
+  return { from, to, expected, real };
+}
+
+/* =================================================================== archivos: .plan.json */
+const FILE_FORMAT = 'planificador', FILE_VERSION = 1, FILE_EXTENSION = '.plan.json';
+class PlanFileError extends Error {}
+const serializePlan = (plan) => JSON.stringify({ format: FILE_FORMAT, version: FILE_VERSION, savedAt: new Date().toISOString(), plan }, null, 2) + '\n';
+function parsePlanFile(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { throw new PlanFileError('El archivo no es JSON válido.'); }
+  if (!data || data.format !== FILE_FORMAT) throw new PlanFileError('El archivo no es un plan de este planificador.');
+  if (typeof data.version !== 'number' || data.version > FILE_VERSION) throw new PlanFileError('El archivo es de una versión más nueva del planificador.');
+  return validatePlan(data.plan);
+}
+function validatePlan(p) {
+  const fail = (m) => { throw new PlanFileError(`Archivo inválido: ${m}`); };
+  if (!p || typeof p !== 'object') fail('falta el plan');
+  if (typeof p.name !== 'string') fail('falta el nombre del proyecto');
+  if (typeof p.startDate !== 'string' || !isValidDate(p.startDate)) fail('fecha de comienzo inválida');
+  if (!Array.isArray(p.tasks)) fail('falta la lista de tareas');
+  const ids = new Set();
+  const tasks = p.tasks.map((t, i) => {
+    const where = `tarea ${i + 1}`;
+    if (!t || typeof t !== 'object') fail(`${where} no es válida`);
+    if (typeof t.id !== 'string' || !t.id) fail(`${where} sin id`);
+    if (ids.has(t.id)) fail(`id repetido: ${t.id}`);
+    ids.add(t.id);
+    if (typeof t.name !== 'string') fail(`${where} sin nombre`);
+    if (!Number.isInteger(t.duration) || t.duration < 0) fail(`${where} con duración inválida`);
+    const task = { id: t.id, name: t.name, duration: t.duration, dependencies: (t.dependencies || []).map((d) => {
+      if (!d || typeof d.predecessorId !== 'string') fail(`${where} con una predecesora inválida`);
+      const type = d.type || 'FS';
+      if (!['FS', 'SS', 'FF', 'SF'].includes(type)) fail(`${where} con tipo de vínculo desconocido`);
+      if (!Number.isInteger(d.lag || 0)) fail(`${where} con retraso inválido`);
+      return { predecessorId: d.predecessorId, type, lag: d.lag || 0 };
+    }) };
+    if (t.parentId != null) { if (typeof t.parentId !== 'string') fail(`${where} con padre inválido`); task.parentId = t.parentId; }
+    if (t.startNoEarlierThan != null) { if (!isValidDate(t.startNoEarlierThan)) fail(`${where} con restricción inválida`); task.startNoEarlierThan = t.startNoEarlierThan; }
+    if (t.percentComplete != null) {
+      if (typeof t.percentComplete !== 'number' || t.percentComplete < 0 || t.percentComplete > 100) fail(`${where} con % completado inválido`);
+      task.percentComplete = t.percentComplete;
+    }
+    if (t.key) task.key = true;
+    if (t.history != null) {
+      if (!Array.isArray(t.history)) fail(`${where} con historial inválido`);
+      task.history = t.history.map((h) => {
+        if (!h || ![h.at, h.start, h.finish].every(isValidDate)) fail(`${where} con una reprogramación inválida`);
+        return { at: h.at, prevStart: isValidDate(h.prevStart) ? h.prevStart : null, prevFinish: isValidDate(h.prevFinish) ? h.prevFinish : null,
+          start: h.start, finish: h.finish, reason: typeof h.reason === 'string' ? h.reason : '' };
+      });
+    }
+    return task;
+  });
+  for (const t of tasks) {
+    if (t.parentId != null && !ids.has(t.parentId)) fail(`"${t.name}" tiene un padre inexistente`);
+    for (const d of t.dependencies) if (!ids.has(d.predecessorId)) fail(`"${t.name}" depende de una tarea inexistente`);
+  }
+  const maxNum = Math.max(0, ...tasks.map((t) => Number((/^t(\d+)$/.exec(t.id) || [])[1] || 0)));
+  const plan = { name: p.name, startDate: p.startDate, tasks, nextId: Number.isInteger(p.nextId) && p.nextId > maxNum ? p.nextId : maxNum + 1 };
+  if (p.statusDate != null) { if (!isValidDate(p.statusDate)) fail('fecha de corte inválida'); plan.statusDate = p.statusDate; }
+  if (p.baselines != null) {
+    if (!Array.isArray(p.baselines)) fail('líneas base inválidas');
+    const numbers = new Set();
+    plan.baselines = p.baselines.map((b, i) => {
+      const where = `línea base ${i + 1}`;
+      if (!b || !Number.isInteger(b.number) || b.number < 1 || numbers.has(b.number)) fail(`${where} con número inválido o repetido`);
+      numbers.add(b.number);
+      if (!['borrador', 'fijada'].includes(b.status)) fail(`${where} con estado inválido`);
+      if (!isValidDate(b.createdAt)) fail(`${where} sin fecha de creación`);
+      if (b.status === 'fijada' && !isValidDate(b.fixedAt)) fail(`${where} fijada sin fecha`);
+      if (!b.tasks || typeof b.tasks !== 'object') fail(`${where} sin tareas`);
+      const tasksLB = {};
+      for (const [id, d] of Object.entries(b.tasks)) {
+        if (!ids.has(id)) continue; // tarea eliminada después de fijar: se ignora
+        if (!d || !isValidDate(d.start) || !isValidDate(d.finish) || !Number.isInteger(d.duration) || d.duration < 0) fail(`${where}: fechas inválidas`);
+        tasksLB[id] = { start: d.start, finish: d.finish, duration: d.duration };
+      }
+      const out = { id: `lb${b.number}`, number: b.number, status: b.status, createdAt: b.createdAt, reason: typeof b.reason === 'string' ? b.reason : '', tasks: tasksLB };
+      if (b.fixedAt) out.fixedAt = b.fixedAt;
+      return out;
+    }).sort((a, b) => a.number - b.number);
+    if (plan.baselines.filter((b) => b.status === 'borrador').length > 1) fail('hay más de una línea base en borrador');
+  }
+  if (p.cortes != null) {
+    if (!Array.isArray(p.cortes)) fail('cortes inválidos');
+    const dates = new Set();
+    plan.cortes = p.cortes.map((c) => {
+      if (!c || !isValidDate(c.date) || dates.has(c.date)) fail('corte con fecha inválida o repetida');
+      dates.add(c.date);
+      const tasksC = {};
+      for (const [id, v] of Object.entries(c.tasks || {})) {
+        if (!ids.has(id)) continue;
+        if (typeof v !== 'number' || v < 0 || v > 100) fail(`corte ${c.date}: % inválido`);
+        tasksC[id] = v;
+      }
+      return { date: c.date, recordedAt: isValidDate(c.recordedAt) ? c.recordedAt : c.date, tasks: tasksC };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+  }
+  return plan;
+}
+/** Bloque de tareas copiado (puede venir del portapapeles de otra pestaña): mismas reglas que un .plan.json.
+    Devuelve el bloque normalizado o null si no es un bloque válido. */
+function parseTaskClip(data) {
+  if (!data || data.format !== CLIP_FORMAT || !Array.isArray(data.tasks) || !data.tasks.length) return null;
+  const external = data.external && typeof data.external === 'object' ? data.external : {};
+  const ids = new Set(data.tasks.map((t) => t && t.id));
+  const depOk = (d) => d && typeof d.predecessorId === 'string' && (ids.has(d.predecessorId) || typeof external[d.predecessorId] === 'string');
+  const depsOf = (t) => (t && Array.isArray(t.dependencies) ? t.dependencies : []);
+  try {
+    // las predecesoras externas no existen en el bloque: se validan sin ellas y luego se agregan
+    const shell = validatePlan({ name: 'bloque', startDate: '2026-01-05', tasks: data.tasks.map((t) => ({ ...t,
+      parentId: t && ids.has(t.parentId) ? t.parentId : undefined,
+      dependencies: depsOf(t).filter((d) => d && ids.has(d.predecessorId)) })) });
+    const extDeps = validatePlan({ name: 'bloque', startDate: '2026-01-05', tasks: [
+      ...Object.keys(external).filter((id) => !ids.has(id)).map((id) => ({ id, name: String(external[id]), duration: 1 })),
+      ...data.tasks.map((t) => ({ id: t.id, name: '', duration: 0, dependencies: depsOf(t).filter(depOk).filter((d) => !ids.has(d.predecessorId)) })),
+    ] }).tasks.slice(-data.tasks.length);
+    const tasks = shell.tasks.map((t, i) => ({ ...t, dependencies: [...t.dependencies, ...extDeps[i].dependencies] }));
+    // el orden de las predecesoras se conserva como en la tarea original
+    tasks.forEach((t, i) => { const order = depsOf(data.tasks[i]).map((d) => d && d.predecessorId); t.dependencies.sort((a, b) => order.indexOf(a.predecessorId) - order.indexOf(b.predecessorId)); });
+    return { format: CLIP_FORMAT, version: 1, tasks, external: Object.fromEntries(Object.entries(external).filter(([, v]) => typeof v === 'string')) };
+  } catch (e) { if (e instanceof PlanFileError) return null; throw e; }
+}
+
+/* =================================================================== archivos: importar XML de MS Project / ProjectLibre (MSPDI)
+   Trae EDT, duraciones, hitos, % completado, "No comenzar antes del" y vínculos FC/CC/FF/CF con retraso.
+   Lo que no se puede trasladar tal cual se ajusta y se informa; nunca se pierde en silencio. */
+class MsProjectImportError extends Error {}
+const LINK_TYPES = { 0: 'FF', 1: 'FS', 2: 'SF', 3: 'SS' };
+function isoDurationHours(value) {
+  const m = /^-?P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(value);
+  if (!m) throw new MsProjectImportError(`Duración no reconocida: ${value}`);
+  return Number(m[1] || 0) * 24 + Number(m[2] || 0) + Number(m[3] || 0) / 60 + Number(m[4] || 0) / 3600;
+}
+function importMsProjectXml(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new MsProjectImportError('El archivo no es XML válido.');
+  const project = doc.documentElement;
+  if (!project || project.localName !== 'Project') {
+    throw new MsProjectImportError('No es un XML de MS Project. En ProjectLibre o Project usa Archivo > Guardar como > XML.');
+  }
+  const kids = (el, name) => Array.from(el.children).filter((c) => c.localName === name);
+  const child = (el, name) => kids(el, name)[0];
+  const text = (el, name) => { const c = child(el, name); return c && c.textContent.trim() ? c.textContent.trim() : undefined; };
+  const dateOnly = (v) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : undefined);
+  const warnings = [];
+  const minutesPerDay = Number(text(project, 'MinutesPerDay') || 480) || 480;
+  const tasksEl = child(project, 'Tasks');
+  const rows = [];
+  for (const el of tasksEl ? kids(tasksEl, 'Task') : []) {
+    const uid = text(el, 'UID');
+    const level = Number(text(el, 'OutlineLevel') || 1);
+    if (!uid || uid === '0' || level === 0 || text(el, 'IsNull') === '1') continue;
+    if (text(el, 'Active') === '0') { warnings.push(`Se omitió la tarea inactiva "${text(el, 'Name') || uid}".`); continue; }
+    rows.push({ uid, el, level, name: text(el, 'Name') || `Tarea ${uid}` });
+  }
+  if (!rows.length) warnings.push('El archivo no tiene tareas.');
+  const idOf = new Map(rows.map((r, i) => [r.uid, `t${i + 1}`]));
+  const parentOf = new Map();
+  const stack = [];
+  for (const r of rows) {
+    while (stack.length && stack[stack.length - 1].level >= r.level) stack.pop();
+    if (stack.length) parentOf.set(r.uid, stack[stack.length - 1].uid);
+    stack.push(r);
+  }
+  const summaries = new Set(parentOf.values());
+  const days = new Map();
+  for (const r of rows) {
+    const raw = text(r.el, 'Duration');
+    let d = 0;
+    if (raw) {
+      const exact = (isoDurationHours(raw) * 60) / minutesPerDay;
+      d = Math.max(0, Math.round(exact));
+      if (Math.abs(exact - d) > 1e-6 && !summaries.has(r.uid)) warnings.push(`"${r.name}": la duración de ${+exact.toFixed(2)} días se redondeó a ${d} (aquí se usan días enteros).`);
+    }
+    days.set(r.uid, d);
+  }
+  const tasks = rows.map((r) => {
+    const task = { id: idOf.get(r.uid), name: r.name, duration: summaries.has(r.uid) ? 0 : days.get(r.uid), dependencies: [] };
+    if (parentOf.has(r.uid)) task.parentId = idOf.get(parentOf.get(r.uid));
+    const pct = Number(text(r.el, 'PercentComplete') || 0);
+    if (pct > 0 && !summaries.has(r.uid)) task.percentComplete = Math.min(100, Math.round(pct));
+    const ct = text(r.el, 'ConstraintType');
+    if (ct === '4') { const cd = dateOnly(text(r.el, 'ConstraintDate')); if (cd) task.startNoEarlierThan = cd; }
+    else if (ct && ct !== '0') warnings.push(`"${r.name}": se ignoró una restricción de fecha que no es "No comenzar antes del".`);
+    for (const link of kids(r.el, 'PredecessorLink')) {
+      const pu = text(link, 'PredecessorUID');
+      const pred = rows.find((x) => x.uid === pu);
+      if (!pred) { warnings.push(`"${r.name}": se omitió un vínculo hacia una tarea que no está en el archivo.`); continue; }
+      if (summaries.has(r.uid) || summaries.has(pu)) {
+        warnings.push(`Se quitó el vínculo "${pred.name}" → "${r.name}": aquí no se admiten vínculos con tareas resumen (ponlo en sus subtareas).`);
+        continue;
+      }
+      const lagRaw = Number(text(link, 'LinkLag') || 0);
+      const fmt = text(link, 'LagFormat') || '7';
+      let lag = fmt === '19' || fmt === '20' ? ((lagRaw / 10) / 100) * days.get(pu) : lagRaw / 10 / minutesPerDay;
+      if (!Number.isInteger(lag)) { const r2 = Math.round(lag); warnings.push(`Vínculo "${pred.name}" → "${r.name}": el retraso de ${+lag.toFixed(2)} días se redondeó a ${r2}.`); lag = r2; }
+      task.dependencies.push({ predecessorId: idOf.get(pu), type: LINK_TYPES[text(link, 'Type') || '1'] || 'FS', lag });
+    }
+    return task;
+  });
+  // línea base de Project (Baseline número 0): se trae como LB 1 fijada
+  const lbTasks = {};
+  for (const r of rows) {
+    if (summaries.has(r.uid)) continue;
+    const b = kids(r.el, 'Baseline').find((x) => (text(x, 'Number') || '0') === '0');
+    const bs = b && dateOnly(text(b, 'Start')), bf = b && dateOnly(text(b, 'Finish'));
+    if (!bs || !bf) continue;
+    const bd = text(b, 'Duration') ? Math.max(0, Math.round((isoDurationHours(text(b, 'Duration')) * 60) / minutesPerDay)) : null;
+    lbTasks[idOf.get(r.uid)] = { start: bs, finish: bf, duration: bd === null ? (bs === bf ? 0 : 1) : bd };
+  }
+  const startDate = dateOnly(text(project, 'StartDate')) || (rows[0] && dateOnly(text(rows[0].el, 'Start'))) || todayIso();
+  const name = text(project, 'Title') || (text(project, 'Name') || 'Proyecto importado').replace(/\.xml$/i, '');
+  const plan = { name, startDate, tasks, nextId: tasks.length + 1 };
+  const status = dateOnly(text(project, 'StatusDate'));
+  if (status) plan.statusDate = status;
+  if (Object.keys(lbTasks).length) {
+    plan.baselines = [{ id: 'lb1', number: 1, status: 'fijada', createdAt: todayIso(), fixedAt: todayIso(), reason: 'Línea base importada del XML', tasks: lbTasks }];
+    const missing = tasks.filter((t) => !summaries.has(rows[tasks.indexOf(t)].uid) && !lbTasks[t.id]).length;
+    if (missing) warnings.push(`${missing} tarea${missing > 1 ? 's' : ''} sin línea base en el archivo: no se comparan contra la línea base.`);
+  }
+  return { plan, warnings };
+}
+
+/* =================================================================== archivos: exportar XML de MS Project / ProjectLibre
+   Incluye un calendario "Colombia" con los festivos, para que allá las fechas den igual que aquí. */
+function exportMsProjectXml(plan, result, baseline = currentBaseline(plan), calendar = new WorkCalendar()) {
+  const x = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const tag = (n, v) => `<${n}>${x(v)}</${n}>`;
+  const hours = (d) => `PT${d * 8}H0M0S`;
+  const code = { FF: 0, FS: 1, SF: 2, SS: 3 };
+  const uidOf = new Map(plan.tasks.map((t, i) => [t.id, i + 1]));
+  const wbs = wbsCodes(plan);
+  const weekDays = [];
+  for (let day = 1; day <= 7; day++) {
+    const working = day >= 2 && day <= 6;
+    weekDays.push(`<WeekDay>${tag('DayType', day)}${tag('DayWorking', working ? 1 : 0)}${working
+      ? '<WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes>'
+      : ''}</WeekDay>`);
+  }
+  for (let y = Number(result.startDate.slice(0, 4)) - 1; y <= Number(result.finishDate.slice(0, 4)) + 2; y++) {
+    for (const h of colombiaHolidays(y)) weekDays.push(`<WeekDay><DayType>0</DayType><DayWorking>0</DayWorking><TimePeriod>${tag('FromDate', `${h}T00:00:00`)}${tag('ToDate', `${h}T23:59:00`)}</TimePeriod></WeekDay>`);
+  }
+  const lb = baselineDates(plan, baseline, calendar);
+  const baselineTag = (id) => {
+    const b = lb[id];
+    return b ? `<Baseline><Number>0</Number>${tag('Start', b.duration === 0 ? `${b.finish}T17:00:00` : `${b.start}T08:00:00`)}${tag('Finish', `${b.finish}T17:00:00`)}${tag('Duration', hours(b.duration))}<DurationFormat>7</DurationFormat></Baseline>` : '';
+  };
+  const tasks = [`<Task><UID>0</UID><ID>0</ID>${tag('Name', plan.name)}<OutlineNumber>0</OutlineNumber><OutlineLevel>0</OutlineLevel>${tag('Start', `${result.startDate}T08:00:00`)}${tag('Finish', `${result.finishDate}T17:00:00`)}${tag('Duration', hours(result.durationDays))}<DurationFormat>7</DurationFormat><Summary>1</Summary></Task>`];
+  plan.tasks.forEach((t, i) => {
+    const s = result.tasks[t.id];
+    if (!s) return;
+    const summary = hasChildren(plan, t.id);
+    const links = (t.dependencies || []).filter((d) => uidOf.has(d.predecessorId)).map((d) =>
+      `<PredecessorLink>${tag('PredecessorUID', uidOf.get(d.predecessorId))}${tag('Type', code[d.type || 'FS'])}<CrossProject>0</CrossProject>${tag('LinkLag', (d.lag || 0) * 4800)}<LagFormat>7</LagFormat></PredecessorLink>`).join('');
+    tasks.push(`<Task>${tag('UID', i + 1)}${tag('ID', i + 1)}${tag('Name', t.name)}<IsNull>0</IsNull>${tag('WBS', wbs[i])}${tag('OutlineNumber', wbs[i])}${tag('OutlineLevel', levelOf(plan, i) + 1)}`
+      + `${tag('Start', s.isMilestone ? `${s.finish}T17:00:00` : `${s.start}T08:00:00`)}${tag('Finish', `${s.finish}T17:00:00`)}${tag('Duration', hours(s.duration))}<DurationFormat>7</DurationFormat>`
+      + `${tag('PercentComplete', summary ? 0 : Math.round(t.percentComplete || 0))}<Summary>${summary ? 1 : 0}</Summary><Milestone>${s.isMilestone ? 1 : 0}</Milestone><Critical>${s.critical ? 1 : 0}</Critical>`
+      + `${t.startNoEarlierThan ? `<ConstraintType>4</ConstraintType>${tag('ConstraintDate', `${t.startNoEarlierThan}T08:00:00`)}` : '<ConstraintType>0</ConstraintType>'}${links}${baselineTag(t.id)}</Task>`);
+  });
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+<SaveVersion>14</SaveVersion>${tag('Name', `${plan.name}.xml`)}${tag('Title', plan.name)}<ScheduleFromStart>1</ScheduleFromStart>
+${tag('StartDate', `${result.startDate}T08:00:00`)}${tag('FinishDate', `${result.finishDate}T17:00:00`)}
+<CalendarUID>1</CalendarUID><DefaultStartTime>08:00:00</DefaultStartTime><DefaultFinishTime>17:00:00</DefaultFinishTime>
+<MinutesPerDay>480</MinutesPerDay><MinutesPerWeek>2400</MinutesPerWeek><DaysPerMonth>20</DaysPerMonth>${plan.statusDate ? tag('StatusDate', `${plan.statusDate}T17:00:00`) : ''}
+<Calendars><Calendar><UID>1</UID><Name>Colombia</Name><IsBaseCalendar>1</IsBaseCalendar><BaseCalendarUID>-1</BaseCalendarUID><WeekDays>${weekDays.join('')}</WeekDays></Calendar></Calendars>
+<Tasks>
+${tasks.join('\n')}
+</Tasks>
+</Project>
+`;
+}
+
+/* =================================================================== archivos: CSV para Excel (separador ";" y tildes correctas) */
+function planToCsv(plan, result, progress, baseline = null, calendar = new WorkCalendar()) {
+  const cell = (v) => { const s = v == null ? '' : String(v); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const wbs = wbsCodes(plan);
+  const lb = baselineDates(plan, baseline, calendar);
+  const rowOf = new Map(plan.tasks.map((t, i) => [t.id, i + 1]));
+  const lines = [['Fila', 'EDT', 'Nombre', 'Tipo', 'Duración (días)', 'Comienzo', 'Fin', 'Inicio LB', 'Fin LB', 'Variación fin (días)', 'Predecesoras',
+    '% real', '% esperado LB', '% esperado actual', 'Holgura (días)', 'Crítica', 'Hito clave', 'Reprogramaciones'].join(';')];
+  plan.tasks.forEach((t, i) => {
+    const s = result && result.tasks[t.id];
+    const p = progress && progress[t.id];
+    const b = lb[t.id];
+    lines.push([i + 1, wbs[i], t.name, s ? (s.isSummary ? 'Resumen' : s.isMilestone ? 'Hito' : 'Tarea') : '', s ? s.duration : t.duration,
+      s && s.start, s && s.finish, b && b.start, b && b.finish, b && s ? varianceDays(calendar, b.finish, s.finish) : '',
+      formatPredecessors(t.dependencies, (id) => rowOf.get(id)), p ? p.actual : '', p && p.plannedLB !== null ? p.plannedLB : '', p ? p.plannedCurrent : '',
+      s ? s.totalSlack : '', s ? (s.critical ? 'Sí' : 'No') : '', t.key ? 'Sí' : '', (t.history || []).length || ''].map(cell).join(';'));
+  });
+  return '﻿' + lines.join('\r\n') + '\r\n';
+}
+
+/* =================================================================== archivos: abrir y guardar desde el navegador
+   Edge/Chrome: diálogos nativos y "Guardar" sobre el mismo archivo. Otros navegadores: subir y descargar. */
+const PLAN_TYPE = { description: 'Plan del planificador', accept: { 'application/json': ['.json'] } };
+const XML_TYPE = { description: 'XML de MS Project / ProjectLibre', accept: { 'application/xml': ['.xml'] } };
+const CSV_TYPE = { description: 'CSV para Excel', accept: { 'text/csv': ['.csv'] } };
+const isAbort = (e) => e && e.name === 'AbortError';
+async function openFile(types) {
+  if (typeof window.showOpenFilePicker === 'function') {
+    try {
+      const [handle] = await window.showOpenFilePicker({ types, multiple: false });
+      const file = await handle.getFile();
+      return { name: file.name, text: await file.text(), handle };
+    } catch (e) { if (isAbort(e)) return null; throw e; }
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = types.flatMap((t) => Object.values(t.accept).flat()).join(',');
+    input.addEventListener('change', async () => { const f = input.files[0]; resolve(f ? { name: f.name, text: await f.text() } : null); });
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+}
+async function writeToHandle(handle, text) { const w = await handle.createWritable(); await w.write(text); await w.close(); }
+async function saveFileAs(suggestedName, text, type, mime) {
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName, types: [type] });
+      await writeToHandle(handle, text);
+      return { handle, name: handle.name };
+    } catch (e) { if (isAbort(e)) return null; throw e; }
+  }
+  download(suggestedName, text, mime);
+  return { handle: null, name: suggestedName };
+}
+function download(name, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const fileNameFor = (name, ext) => `${name.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'proyecto'}${ext}`;
+/* =================================================================== vistas: utilidades */
+const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const DAY_NAMES = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const shortDate = (d) => (d ? `${DAY_NAMES[weekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}/${d.slice(2, 4)}` : '');
+const longDate = (d) => (d ? `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}` : '');
+const pct = (n) => `${Number.isInteger(n) ? n : n.toFixed(1)} %`.replace('.', ',');
+const pts = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(Number.isInteger(n) ? 0 : 1).replace('.', ',')} pts`;
+const statusHtml = (cls, icon, label, extra = '') => `<span class="status ${cls}"><span class="icon" aria-hidden="true">${icon}</span>${esc(label)}${extra}</span>`;
+
+/* =================================================================== vistas: tabla de tareas
+   Tres juegos de columnas para que la tabla no quede demasiado ancha: Planificación, Línea base y Avance. */
+const COLUMN_DEFS = {
+  row: ['#', 36], name: ['Nombre de tarea', 250], duration: ['Duración', 70], start: ['Comienzo', 116], finish: ['Fin', 116],
+  pred: ['Predecesoras', 104], pct: ['% real', 64], slack: ['Holgura', 62],
+  lbstart: ['Inicio LB', 116], lbfinish: ['Fin LB', 116], lbdur: ['Dur. LB', 64], variance: ['Var. fin', 70], hist: ['↻', 40],
+  plb: ['% esp. LB', 78], pcur: ['% esp. actual', 92], dev: ['Desviación', 150],
+};
+const COLUMN_SETS = {
+  planificacion: { label: 'Planificación', cols: ['row', 'name', 'duration', 'start', 'finish', 'pred', 'pct', 'slack'] },
+  lineabase: { label: 'Línea base', cols: ['row', 'name', 'lbstart', 'lbfinish', 'lbdur', 'start', 'finish', 'variance', 'hist'] },
+  avance: { label: 'Avance', cols: ['row', 'name', 'start', 'finish', 'pct', 'plb', 'pcur', 'dev'] },
+};
+const COLUMN_HELP = {
+  start: 'Comienzo actual. Si lo cambias se fija "no comenzar antes de" y las sucesoras se mueven solas. Déjalo vacío para quitar la restricción.',
+  finish: 'Fin actual. Si lo cambias se recalcula la duración y las sucesoras se mueven solas.',
+  lbstart: 'Inicio según la línea base (editable solo mientras la línea base está en borrador).',
+  lbfinish: 'Fin según la línea base (editable solo mientras la línea base está en borrador).',
+  variance: 'Días laborales entre el fin de la línea base y el fin actual (+ atraso, − adelanto).',
+  hist: 'Reprogramaciones registradas (clic para ver el historial).',
+  pct: 'Avance real registrado (lo escribes tú).',
+  plb: '% que debería llevar a la fecha de corte según la línea base.',
+  pcur: '% que debería llevar a la fecha de corte con las fechas actuales (reprogramadas).',
+  dev: 'Real contra lo esperado según la línea base (o contra las fechas actuales si no hay línea base).',
+};
+/** widths: anchos elegidos por el usuario ({ name: 320 }); lo que falte sale de COLUMN_DEFS. */
+const colWidth = (k, widths = {}) => widths[k] || COLUMN_DEFS[k][1];
+const tableWidth = (set, widths = {}) => COLUMN_SETS[set].cols.reduce((a, k) => a + colWidth(k, widths), 0);
+const PRED_HELP = 'Filas de las que depende. Ej: 2, 3CC+2, 4FF-1 (FC fin-comienzo, CC comienzo-comienzo, FF fin-fin, CF comienzo-fin; +/- días)';
+const NAME_RESIZER = '<span class="col-resizer" data-resize="name" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Ancho de la columna Nombre de tarea" title="Arrastra para cambiar el ancho (doble clic: ancho inicial; ← → con el foco)"></span>';
+
+function renderTableHead(set, widths = {}) {
+  return `<tr>${COLUMN_SETS[set].cols.map((k) => `<th data-col="${k}" style="width:${colWidth(k, widths)}px"${COLUMN_HELP[k] ? ` title="${esc(COLUMN_HELP[k])}"` : ''}>${esc(COLUMN_DEFS[k][0])}${k === 'name' ? NAME_RESIZER : ''}</th>`).join('')}</tr>`;
+}
+
+/** Selección de filas: un id (fila activa) o un Set de ids (varias filas). */
+const isSelected = (selected, id) => (selected instanceof Set ? selected.has(id) : selected === id);
+/** ctx: { set, lb (fechas de la línea base por tarea), draft (línea base en borrador o null), progress, calendar } */
+function renderTableBody(plan, visible, result, selectedId, collapsed, errorIds, ctx) {
+  const rowOf = new Map(plan.tasks.map((t, i) => [t.id, i + 1]));
+  const dateInput = (field, value, help) => `<input class="cell date" type="date" data-field="${field}" value="${esc(value || '')}" title="${esc(help)}">`;
+  return visible.map((idx) => {
+    const t = plan.tasks[idx];
+    const s = result && result.tasks[t.id];
+    const summary = hasChildren(plan, t.id);
+    const milestone = !summary && t.duration === 0;
+    const b = ctx.lb[t.id];
+    const p = ctx.progress && ctx.progress[t.id];
+    const cls = ['row', summary && 'summary', s && s.critical && 'critical', isSelected(selectedId, t.id) && 'selected', errorIds.has(t.id) && 'error'].filter(Boolean).join(' ');
+    const lead = summary
+      ? `<button class="toggle" data-action="toggle" title="${collapsed.has(t.id) ? 'Expandir' : 'Contraer'}">${collapsed.has(t.id) ? '▸' : '▾'}</button>`
+      : milestone ? `<button class="star${t.key ? ' on' : ''}" data-action="key" title="${t.key ? 'Hito clave (clic para quitar)' : 'Marcar como hito clave'}">${t.key ? '★' : '☆'}</button>`
+        : '<span class="toggle-space"></span>';
+    const editableLB = ctx.draft && !summary && ctx.draft.tasks[t.id];
+    const cell = {
+      row: () => `<td class="c-row">${idx + 1}</td>`,
+      name: () => `<td class="c-name"><div class="name-wrap" style="padding-left:${levelOf(plan, idx) * 16}px">${lead}${milestone ? '<span class="ms-icon" title="Hito">◆</span>' : ''}<input class="cell" data-field="name" value="${esc(t.name)}">${t.startNoEarlierThan ? `<span class="pin" title="No comenzar antes del ${esc(shortDate(t.startNoEarlierThan))}">⊣</span>` : ''}</div></td>`,
+      duration: () => `<td>${summary ? `<span class="computed">${s ? `${s.duration} d` : ''}</span>` : `<input class="cell num" data-field="duration" type="number" min="0" step="1" value="${t.duration}" title="Días laborales (0 = hito)">`}</td>`,
+      start: () => `<td class="computed">${summary || !s || ctx.set === 'avance' ? esc(shortDate(s && s.start)) : dateInput('start', milestone ? s.finish : s.start, COLUMN_HELP.start)}</td>`,
+      finish: () => `<td class="computed">${summary || milestone || !s || ctx.set === 'avance' ? esc(shortDate(s && s.finish)) : dateInput('finish', s.finish, COLUMN_HELP.finish)}</td>`,
+      pred: () => `<td>${summary ? '' : `<input class="cell" data-field="pred" value="${esc(formatPredecessors(t.dependencies, (id) => rowOf.get(id)))}" title="${esc(PRED_HELP)}">`}</td>`,
+      pct: () => `<td>${summary ? `<span class="computed">${p ? esc(pct(p.actual)) : ''}</span>` : `<input class="cell num" data-field="pct" type="number" min="0" max="100" step="5" value="${t.percentComplete || 0}">`}</td>`,
+      slack: () => `<td class="computed${s && s.totalSlack <= 0 ? ' zero' : ''}">${s ? `${s.totalSlack} d` : ''}</td>`,
+      lbstart: () => `<td class="computed">${!b ? '<span class="muted">—</span>' : editableLB && !milestone ? dateInput('lbstart', b.start, COLUMN_HELP.lbstart) : esc(shortDate(b.start))}</td>`,
+      lbfinish: () => `<td class="computed">${!b ? '<span class="muted">—</span>' : editableLB ? dateInput('lbfinish', b.finish, COLUMN_HELP.lbfinish) : esc(shortDate(b.finish))}</td>`,
+      lbdur: () => `<td class="computed">${b ? `${b.duration} d` : ''}</td>`,
+      variance: () => {
+        if (!b || !s) return '<td></td>';
+        const v = varianceDays(ctx.calendar, b.finish, s.finish);
+        return `<td class="computed ${v > 0 ? 'late' : v < 0 ? 'early' : ''}" title="${esc(COLUMN_HELP.variance)}">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} d</td>`;
+      },
+      hist: () => `<td>${(t.history || []).length ? `<button class="hist-btn" data-action="history" title="Ver historial de reprogramaciones">↻ ${t.history.length}</button>` : ''}</td>`,
+      plb: () => `<td class="computed">${p && p.plannedLB !== null ? esc(pct(p.plannedLB)) : '<span class="muted">—</span>'}</td>`,
+      pcur: () => `<td class="computed">${p ? esc(pct(p.plannedCurrent)) : ''}</td>`,
+      dev: () => `<td>${p ? statusHtml(p.status, STATUS_ICON[p.status], pts(p.variance)) : ''}</td>`,
+    };
+    return `<tr class="${cls}" data-id="${esc(t.id)}" data-index="${idx}">${COLUMN_SETS[ctx.set].cols.map((k) => cell[k]()).join('')}</tr>`;
+  }).join('');
+}
+
+/* =================================================================== vistas: Gantt del cronograma (SVG) */
+const ROW_H = 30, HEAD_H = 48;
+const DAY_WIDTH = { dias: 28, semanas: 10, meses: 3 };
+const WD_INITIAL = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+
+function renderGantt({ tasks, visible, result, calendar, startDate, zoom, selectedId, today, lb = {} }) {
+  const dw = DAY_WIDTH[zoom];
+  const lbAll = Object.values(lb);
+  const first = [result ? result.startDate : startDate, ...lbAll.map((b) => b.start)].sort()[0];
+  const last = [result ? result.finishDate : first, ...lbAll.map((b) => b.finish)].sort().slice(-1)[0];
+  const from = addDays(first, -3), to = addDays(last, zoom === 'meses' ? 60 : 21);
+  const day0 = toDayNumber(from), days = toDayNumber(to) - day0 + 1;
+  const width = days * dw, height = Math.max(visible.length, 1) * ROW_H;
+  const xOf = (d) => (toDayNumber(d) - day0) * dw;
+  const rowOf = new Map(visible.map((idx, r) => [tasks[idx].id, r]));
+
+  const head = [];
+  let monthStart = 0;
+  for (let i = 0; i <= days; i++) {
+    const d = fromDayNumber(day0 + i);
+    if (i === days || (i > 0 && d.slice(8) === '01')) {
+      const ms = fromDayNumber(day0 + monthStart), x = monthStart * dw, w = (i - monthStart) * dw;
+      head.push(`<rect x="${x}" y="0" width="${w}" height="22" class="g-head"/>`);
+      if (w > 30) head.push(`<text x="${x + 6}" y="15" class="g-head-text">${MONTHS[Number(ms.slice(5, 7)) - 1]} ${ms.slice(0, 4)}</text>`);
+      monthStart = i;
+    }
+  }
+  for (let i = 0; i < days; i++) {
+    const d = fromDayNumber(day0 + i), x = i * dw, wd = weekday(d);
+    if (zoom === 'dias') {
+      head.push(`<rect x="${x}" y="22" width="${dw}" height="26" class="g-head${calendar.isWorkingDay(d) ? '' : ' off'}"/>`
+        + `<text x="${x + dw / 2}" y="33" class="g-head-small" text-anchor="middle">${WD_INITIAL[wd]}</text>`
+        + `<text x="${x + dw / 2}" y="44" class="g-head-text" text-anchor="middle">${Number(d.slice(8))}</text>`);
+    } else if (zoom === 'semanas' && wd === 1) {
+      head.push(`<line x1="${x}" y1="22" x2="${x}" y2="48" class="g-grid"/><text x="${x + 3}" y="39" class="g-head-small">${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]}</text>`);
+    }
+  }
+  head.push(`<line x1="0" y1="${HEAD_H - 0.5}" x2="${width}" y2="${HEAD_H - 0.5}" class="g-axis"/>`);
+
+  const body = [];
+  visible.forEach((idx, r) => body.push(`<rect x="0" y="${r * ROW_H}" width="${width}" height="${ROW_H}" class="g-row${isSelected(selectedId, tasks[idx].id) ? ' selected' : ''}" data-id="${esc(tasks[idx].id)}"/>`));
+  if (zoom !== 'meses') {
+    for (let i = 0; i < days; i++) {
+      const d = fromDayNumber(day0 + i);
+      if (!calendar.isWorkingDay(d)) body.push(`<rect x="${i * dw}" y="0" width="${dw}" height="${height}" class="g-off"><title>${d}${calendar.isHoliday(d) ? ' · festivo' : ''}</title></rect>`);
+    }
+  }
+  if (today >= from && today <= to) {
+    const x = xOf(today) + dw / 2;
+    body.push(`<line x1="${x}" y1="0" x2="${x}" y2="${height}" class="g-today"><title>Hoy ${today}</title></line>`);
+  }
+  if (result) {
+    const anchor = (id, side) => { const s = result.tasks[id]; return s.isMilestone ? xOf(s.finish) + dw : side === 'start' ? xOf(s.start) : xOf(s.finish) + dw; };
+    for (const idx of visible) {
+      const t = tasks[idx], sr = rowOf.get(t.id);
+      if (!result.tasks[t.id]) continue;
+      for (const d of t.dependencies || []) {
+        const pr = rowOf.get(d.predecessorId);
+        if (pr == null || !result.tasks[d.predecessorId]) continue;
+        const type = d.type || 'FS';
+        const px = anchor(d.predecessorId, type === 'SS' || type === 'SF' ? 'start' : 'end');
+        const toEnd = type === 'FF' || type === 'SF';
+        const sx = anchor(t.id, toEnd ? 'end' : 'start');
+        const py = pr * ROW_H + ROW_H / 2, sy = sr * ROW_H + ROW_H / 2;
+        const crit = result.tasks[t.id].critical && result.tasks[d.predecessorId].critical;
+        let path;
+        if (toEnd) path = `M${px},${py} H${Math.max(px, sx) + 10} V${sy} H${sx + 2}`;
+        else if (sx >= px + 12) path = `M${px},${py} H${px + 6} V${sy} H${sx - 2}`;
+        else { const mid = sy > py ? sr * ROW_H + 2 : sr * ROW_H + ROW_H - 2; path = `M${px},${py} H${px + 6} V${mid} H${sx - 10} V${sy} H${sx - 2}`; }
+        body.push(`<path d="${path}" class="g-link${crit ? ' critical' : ''}" marker-end="url(#${crit ? 'arrow-crit' : 'arrow'})"/>`);
+      }
+    }
+    // línea base: barra gris delgada debajo de cada tarea (como el Gantt de seguimiento de MS Project)
+    visible.forEach((idx, r) => {
+      const b = lb[tasks[idx].id];
+      if (!b) return;
+      const y = r * ROW_H;
+      const tipLB = esc(`Línea base: ${b.start}${b.duration === 0 ? '' : ` → ${b.finish}`} · ${b.duration} d`);
+      if (b.duration === 0) {
+        const cx = xOf(b.finish) + dw, cy = y + ROW_H - 6;
+        body.push(`<path d="M${cx},${cy - 4} L${cx + 4},${cy} L${cx},${cy + 4} L${cx - 4},${cy} Z" class="g-baseline-ms"><title>${tipLB}</title></path>`);
+      } else {
+        body.push(`<rect x="${xOf(b.start) + 1}" y="${y + ROW_H - 8}" width="${Math.max(xOf(b.finish) + dw - xOf(b.start) - 2, 2)}" height="4" rx="2" class="g-baseline"><title>${tipLB}</title></rect>`);
+      }
+    });
+    visible.forEach((idx, r) => {
+      const t = tasks[idx], s = result.tasks[t.id];
+      if (!s) return;
+      const y = r * ROW_H;
+      const lbOn = !!lb[t.id];
+      const tip = esc(`${t.name}\n${s.start}${s.isMilestone ? '' : ` → ${s.finish}`} · ${s.duration} d${s.isSummary ? '' : ` · holgura ${s.totalSlack} d`}${s.critical ? ' · ruta crítica' : ''}`);
+      if (s.isMilestone) {
+        const cx = xOf(s.finish) + dw, cy = y + ROW_H / 2 - (lbOn ? 3 : 0), k = t.key ? 9 : 7;
+        body.push(`<path d="M${cx},${cy - k} L${cx + k},${cy} L${cx},${cy + k} L${cx - k},${cy} Z" class="g-milestone${s.critical ? ' critical' : ''}" data-id="${esc(t.id)}"><title>${tip}</title></path>`
+          + `<text x="${cx + 13}" y="${cy + 4}" class="g-label">${t.key ? '★ ' : ''}${esc(t.name)} · ${s.finish.slice(8)}/${s.finish.slice(5, 7)}</text>`);
+      } else if (s.isSummary) {
+        const x1 = xOf(s.start), x2 = xOf(s.finish) + dw, by = y + (lbOn ? 6 : 9);
+        body.push(`<g class="g-summary" data-id="${esc(t.id)}"><title>${tip}</title><rect x="${x1}" y="${by}" width="${Math.max(x2 - x1, 2)}" height="6"/><path d="M${x1},${by} v12 l6,-6 Z"/><path d="M${x2},${by} v12 l-6,-6 Z"/></g>`);
+      } else {
+        const x1 = xOf(s.start), x2 = xOf(s.finish) + dw, w = Math.max(x2 - x1 - 2, 2);
+        const p = Math.min(Math.max(t.percentComplete || 0, 0), 100);
+        body.push(`<g class="g-bar${s.critical ? ' critical' : ''}" data-id="${esc(t.id)}"><title>${tip}</title><rect x="${x1 + 1}" y="${y + (lbOn ? 4 : 7)}" width="${w}" height="${ROW_H - (lbOn ? 16 : 14)}" rx="3" class="g-bar-bg"/>`
+          + (p > 0 ? `<rect x="${x1 + 1}" y="${y + (lbOn ? 9 : 12)}" width="${(w * p) / 100}" height="${ROW_H - (lbOn ? 26 : 24)}" rx="2" class="g-bar-progress"/>` : '') + '</g>');
+        if (zoom !== 'meses') body.push(`<text x="${x2 + 6}" y="${y + ROW_H / 2 + 4}" class="g-label">${esc(t.name)}</text>`);
+      }
+    });
+  }
+  const defs = '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="g-arrow"/></marker>'
+    + '<marker id="arrow-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="g-arrow critical"/></marker></defs>';
+  return {
+    header: `<svg width="${width}" height="${HEAD_H}" class="g-svg">${head.join('')}</svg>`,
+    body: `<svg width="${width}" height="${height}" class="g-svg">${defs}${body.join('')}</svg>`,
+    xOf,
+  };
+}
+
+/* =================================================================== vistas: tablero de avance
+   Barras horizontales por sección: barra = % real; marca vertical = % planificado a la fecha de corte.
+   El estado (al día / en riesgo / atrasado) va con ícono y texto, nunca solo con color. */
+function progressSections(plan, level) {
+  const summaries = plan.tasks.map((t, i) => ({ t, i })).filter(({ t }) => hasChildren(plan, t.id));
+  if (level === 'todas' && summaries.length) return summaries.map(({ t, i }) => ({ id: t.id, name: t.name, depth: levelOf(plan, i) }));
+  const top = plan.tasks.map((t, i) => ({ t, i })).filter(({ t }) => t.parentId == null && (hasChildren(plan, t.id) || t.duration > 0));
+  return top.map(({ t }) => ({ id: t.id, name: t.name, depth: 0 }));
+}
+
+function renderProgressChart(sections, progress, width) {
+  const labelW = Math.min(300, Math.max(180, width * 0.26)), statusW = 200, padR = 24;
+  const plotW = Math.max(220, width - labelW - statusW - padR);
+  const rowH = 40, top = 26, barH = 14, r = 4;
+  const height = top + sections.length * rowH + 8;
+  const X = (v) => labelW + (Math.min(Math.max(v, 0), 100) / 100) * plotW;
+  const out = [];
+  for (const v of [0, 25, 50, 75, 100]) {
+    out.push(`<line x1="${X(v)}" y1="${top - 6}" x2="${X(v)}" y2="${height - 6}" class="${v === 0 ? 'c-axis' : 'c-grid'}"/>`
+      + `<text x="${X(v)}" y="${top - 10}" class="c-muted" text-anchor="middle">${v} %</text>`);
+  }
+  sections.forEach((s, i) => {
+    const p = progress[s.id];
+    if (!p) return;
+    const y = top + i * rowH, by = y + (rowH - barH) / 2;
+    const name = s.name.length > 38 ? `${s.name.slice(0, 36)}…` : s.name;
+    const x0 = X(0), x1 = X(p.actual), w = x1 - x0;
+    const bar = w <= 0 ? '' : w <= r
+      ? `<rect x="${x0}" y="${by}" width="${w}" height="${barH}" class="c-bar"/>`
+      : `<path d="M${x0},${by} H${x1 - r} Q${x1},${by} ${x1},${by + r} V${by + barH - r} Q${x1},${by + barH} ${x1 - r},${by + barH} H${x0} Z" class="c-bar"/>`;
+    const inside = w > 70;
+    const valueLabel = inside
+      ? `<text x="${x1 - 8}" y="${by + barH - 3}" text-anchor="end" style="font-size:11px;font-weight:600;fill:#fff">${esc(pct(p.actual))}</text>`
+      : `<text x="${x1 + 8}" y="${by + barH - 3}" class="c-text-2">${esc(pct(p.actual))}</text>`;
+    const mx = X(p.planned);
+    const tip = esc(`${s.name}\nReal ${pct(p.actual)} · Planificado ${pct(p.planned)} · ${pts(p.variance)} · ${STATUS_LABEL[p.status]}`);
+    out.push(`<g class="c-row" tabindex="0"><title>${tip}</title>
+      <rect x="0" y="${y}" width="${width}" height="${rowH}" class="c-hit"/>
+      <text x="${8 + s.depth * 14}" y="${y + rowH / 2 + 4}" class="c-text"${s.depth === 0 ? ' style="font-weight:600"' : ''}>${esc(name)}</text>
+      <rect x="${x0}" y="${by}" width="${plotW}" height="${barH}" rx="${r}" class="c-track"/>
+      <rect x="${x0}" y="${by}" width="${Math.min(r, plotW)}" height="${barH}" class="c-track"/>
+      ${bar}${valueLabel}
+      <line x1="${mx}" y1="${by - 5}" x2="${mx}" y2="${by + barH + 5}" class="c-mark"/>
+      <foreignObject x="${labelW + plotW + padR}" y="${y + 9}" width="${statusW}" height="24"><div xmlns="http://www.w3.org/1999/xhtml">${statusHtml(p.status, STATUS_ICON[p.status], STATUS_LABEL[p.status], ` <span style="color:var(--muted)">· ${esc(pts(p.variance))}</span>`)}</div></foreignObject>
+    </g>`);
+  });
+  return `<svg width="${width}" height="${height}" role="img" aria-label="Avance real contra planificado por sección">${out.join('')}</svg>`;
+}
+
+function renderProgressTable(sections, progress) {
+  return `<table class="data-table"><thead><tr><th>Sección</th><th class="num">% real</th><th class="num">% planificado</th><th class="num">Desviación</th><th>Estado</th></tr></thead><tbody>`
+    + sections.map((s) => { const p = progress[s.id]; return p ? `<tr><td style="padding-left:${8 + s.depth * 14}px">${esc(s.name)}</td><td class="num">${pct(p.actual)}</td><td class="num">${pct(p.planned)}</td><td class="num">${pts(p.variance)}</td><td>${statusHtml(p.status, STATUS_ICON[p.status], STATUS_LABEL[p.status])}</td></tr>` : ''; }).join('')
+    + '</tbody></table>';
+}
+
+/* =================================================================== vistas: Gantt de hitos (línea de tiempo) */
+function renderMilestoneTimeline(list, statusDate, width) {
+  if (!list.length) return '';
+  const labelW = Math.min(360, Math.max(220, width * 0.3)), dateW = 110, statusW = 120, padR = 70;
+  const plotX = labelW + dateW + statusW, plotW = Math.max(240, width - plotX - padR);
+  const rowH = 34, top = 30;
+  const height = top + list.length * rowH + 10;
+  const dates = list.map((m) => m.date).concat(list.map((m) => m.baselineDate).filter(Boolean), statusDate).sort();
+  const from = addDays(dates[0], -7), to = addDays(dates[dates.length - 1], 7);
+  const d0 = toDayNumber(from), span = Math.max(toDayNumber(to) - d0, 1);
+  const X = (d) => plotX + ((toDayNumber(d) - d0) / span) * plotW;
+  const out = [];
+  // meses como guías finas
+  let cursor = isoDate(Number(from.slice(0, 4)), Number(from.slice(5, 7)), 1);
+  while (cursor <= to) {
+    if (cursor > from && X(cursor) - plotX > 56) {
+      const x = X(cursor);
+      out.push(`<line x1="${x}" y1="${top - 8}" x2="${x}" y2="${height - 6}" class="c-grid"/><text x="${x + 4}" y="${top - 12}" class="c-muted">${MONTHS[Number(cursor.slice(5, 7)) - 1]} ${cursor.slice(2, 4)}</text>`);
+    }
+    const y = Number(cursor.slice(0, 4)), m = Number(cursor.slice(5, 7));
+    cursor = isoDate(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1, 1);
+  }
+  out.push(`<text x="${plotX + 4}" y="${top - 12}" class="c-muted">${MONTHS[Number(from.slice(5, 7)) - 1]} ${from.slice(2, 4)}</text>`);
+  const cx = X(statusDate);
+  out.push(`<line x1="${cx}" y1="${top - 8}" x2="${cx}" y2="${height - 6}" class="c-cut"/><text x="${cx + 4}" y="${height - 10}" class="c-muted">corte ${statusDate.slice(8)}/${statusDate.slice(5, 7)}</text>`);
+  list.forEach((m, i) => {
+    const y = top + i * rowH, cy = y + rowH / 2, x = X(m.date), k = m.key ? 9 : 7;
+    const name = m.name.length > 40 ? `${m.name.slice(0, 38)}…` : m.name;
+    const shift = m.baselineDate ? `\nLínea base: ${longDate(m.baselineDate)} (${m.varianceDays > 0 ? '+' : ''}${m.varianceDays} d)` : '';
+    const tip = esc(`${m.name}\n${longDate(m.date)} · ${MILESTONE_LABEL[m.status]}${m.section ? ` · ${m.section}` : ''}${m.critical ? ' · ruta crítica' : ''}${shift}`);
+    const bx = m.baselineDate ? X(m.baselineDate) : null;
+    const lbMark = bx === null ? '' : `${bx !== x ? `<line x1="${bx}" y1="${cy}" x2="${x}" y2="${cy}" class="c-shift"/>` : ''}<path d="M${bx},${cy - 6} L${bx + 6},${cy} L${bx},${cy + 6} L${bx - 6},${cy} Z" class="dia-lb"/>`;
+    out.push(`<g class="c-row"><title>${tip}</title><rect x="0" y="${y}" width="${width}" height="${rowH}" class="c-hit"/>
+      <line x1="${plotX}" y1="${cy}" x2="${plotX + plotW}" y2="${cy}" class="c-grid"/>
+      <text x="8" y="${cy - 1}" class="c-text"${m.key ? ' style="font-weight:600"' : ''}>${m.key ? '★ ' : ''}${esc(name)}</text>
+      <text x="8" y="${cy + 12}" class="c-muted">${esc(m.section || 'Sin fase')}</text>
+      <text x="${labelW}" y="${cy - 1}" class="c-text-2">${esc(longDate(m.date))}</text>
+      <text x="${labelW}" y="${cy + 12}" class="c-muted">${m.baselineDate ? `LB ${esc(m.baselineDate.slice(8))}/${esc(m.baselineDate.slice(5, 7))} · ${m.varianceDays > 0 ? '+' : m.varianceDays < 0 ? '−' : ''}${Math.abs(m.varianceDays)} d` : 'sin línea base'}</text>
+      <foreignObject x="${labelW + dateW}" y="${cy - 11}" width="${statusW}" height="24"><div xmlns="http://www.w3.org/1999/xhtml">${statusHtml(m.status, MILESTONE_ICON[m.status], MILESTONE_LABEL[m.status])}</div></foreignObject>
+      ${lbMark}<path d="M${x},${cy - k} L${x + k},${cy} L${x},${cy + k} L${x - k},${cy} Z" class="dia ${m.status}"/>
+      <text x="${x + k + 5}" y="${cy + 4}" class="c-muted">${m.date.slice(8)}/${m.date.slice(5, 7)}</text></g>`);
+  });
+  return `<svg width="${width}" height="${height}" role="img" aria-label="Línea de tiempo de hitos">${out.join('')}</svg>`;
+}
+
+function renderMilestoneTable(list) {
+  const v = (m) => (m.varianceDays === null ? '—' : `${m.varianceDays > 0 ? '+' : m.varianceDays < 0 ? '−' : ''}${Math.abs(m.varianceDays)} d`);
+  return `<table class="data-table"><thead><tr><th>Hito</th><th>Fase</th><th>Fecha actual</th><th>Fecha LB</th><th class="num">Variación</th><th>Estado</th><th>Ruta crítica</th></tr></thead><tbody>`
+    + list.map((m) => `<tr><td>${m.key ? '★ ' : ''}${esc(m.name)}</td><td>${esc(m.section || '—')}</td><td>${esc(longDate(m.date))}</td><td>${esc(m.baselineDate ? longDate(m.baselineDate) : '—')}</td>`
+      + `<td class="num ${m.varianceDays > 0 ? 'late' : m.varianceDays < 0 ? 'early' : ''}">${v(m)}</td><td>${statusHtml(m.status, MILESTONE_ICON[m.status], MILESTONE_LABEL[m.status])}</td><td>${m.critical ? 'Sí' : 'No'}</td></tr>`).join('')
+    + '</tbody></table>';
+}
+
+/* =================================================================== vistas: curva S (líneas)
+   Esperado según línea base (serie 1), esperado con fechas actuales (serie 3) y real de los cortes (serie 2, con marcadores).
+   Una sola escala (0-100 %). El valor real se rotula al final; el resto, en la leyenda, el tooltip y la tabla. */
+const SC_H = 330, SC_PAD = { l: 46, r: 96, t: 18, b: 36 };
+function renderSCurve(curve, width, cut) {
+  const plotW = Math.max(300, width - SC_PAD.l - SC_PAD.r), plotH = SC_H - SC_PAD.t - SC_PAD.b;
+  const d0 = toDayNumber(curve.from), span = Math.max(toDayNumber(curve.to) - d0, 1);
+  const X = (d) => SC_PAD.l + ((toDayNumber(d) - d0) / span) * plotW;
+  const Y = (v) => SC_PAD.t + plotH - (Math.min(Math.max(v, 0), 100) / 100) * plotH;
+  const out = [];
+  for (const v of [0, 25, 50, 75, 100]) {
+    out.push(`<line x1="${SC_PAD.l}" y1="${Y(v)}" x2="${SC_PAD.l + plotW}" y2="${Y(v)}" class="${v === 0 ? 'c-axis' : 'c-grid'}"/><text x="${SC_PAD.l - 8}" y="${Y(v) + 4}" class="c-muted" text-anchor="end">${v} %</text>`);
+  }
+  // marcas del eje X: meses (o semanas si el rango es corto)
+  const shortRange = span <= 70;
+  let cursor = shortRange ? addDays(curve.from, (1 - weekday(curve.from) + 7) % 7) : isoDate(Number(curve.from.slice(0, 4)), Number(curve.from.slice(5, 7)), 1);
+  let lastX = -100;
+  while (cursor <= curve.to) {
+    const x = X(cursor);
+    if (cursor >= curve.from && x - lastX > 54) {
+      out.push(`<line x1="${x}" y1="${SC_PAD.t + plotH}" x2="${x}" y2="${SC_PAD.t + plotH + 5}" class="c-axis"/><text x="${x}" y="${SC_PAD.t + plotH + 18}" class="c-muted" text-anchor="middle">${Number(cursor.slice(8))} ${MONTHS[Number(cursor.slice(5, 7)) - 1]}</text>`);
+      lastX = x;
+    }
+    if (shortRange) cursor = addDays(cursor, 7);
+    else { const y = Number(cursor.slice(0, 4)), m = Number(cursor.slice(5, 7)); cursor = isoDate(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1, 1); }
+  }
+  if (cut >= curve.from && cut <= curve.to) {
+    out.push(`<line x1="${X(cut)}" y1="${SC_PAD.t}" x2="${X(cut)}" y2="${SC_PAD.t + plotH}" class="c-cut"/><text x="${X(cut) + 4}" y="${SC_PAD.t + 10}" class="c-muted">corte</text>`);
+  }
+  const path = (pts) => pts.map((q, i) => `${i ? 'L' : 'M'}${X(q.date).toFixed(1)},${Y(q.v).toFixed(1)}`).join(' ');
+  const lb = curve.expected.filter((q) => q.lb !== null).map((q) => ({ date: q.date, v: q.lb }));
+  const cur = curve.expected.map((q) => ({ date: q.date, v: q.current }));
+  const real = curve.real.map((q) => ({ date: q.date, v: q.real }));
+  if (lb.length) out.push(`<path d="${path(lb)}" class="sc-line sc-lb"/>`);
+  out.push(`<path d="${path(cur)}" class="sc-line sc-cur"/>`);
+  if (real.length) {
+    out.push(`<path d="${path(real)}" class="sc-line sc-real"/>`);
+    for (const q of real) out.push(`<circle cx="${X(q.date)}" cy="${Y(q.v)}" r="4.5" class="sc-dot"><title>${esc(`Real ${longDate(q.date)}: ${pct(q.v)}`)}</title></circle>`);
+    const last = real[real.length - 1];
+    out.push(`<text x="${X(last.date) + 10}" y="${Y(last.v) + 4}" class="c-text" style="font-weight:600">Real ${esc(pct(last.v))}</text>`);
+  }
+  out.push(`<line id="sc-cross" x1="0" y1="${SC_PAD.t}" x2="0" y2="${SC_PAD.t + plotH}" class="sc-cross" visibility="hidden"/>`);
+  out.push(`<rect id="sc-overlay" x="${SC_PAD.l}" y="${SC_PAD.t}" width="${plotW}" height="${plotH}" fill="transparent"/>`);
+  return `<svg width="${width}" height="${SC_H}" role="img" aria-label="Curva S: avance esperado contra real" data-from="${curve.from}" data-to="${curve.to}" data-pl="${SC_PAD.l}" data-pw="${plotW}">${out.join('')}</svg>`;
+}
+
+/** Filas de la tabla de la curva: fechas de corte y de cortes registrados. */
+function sCurveRows(curve) {
+  const dates = [...new Set([...curve.expected.map((q) => q.date), ...curve.real.map((q) => q.date)])].sort();
+  const expectedAt = (d) => curve.expected.find((q) => q.date === d);
+  const realAt = (d) => curve.real.find((q) => q.date === d);
+  return dates.map((date) => {
+    const e = expectedAt(date), r = realAt(date);
+    return { date, lb: e ? e.lb : null, current: e ? e.current : null, real: r ? r.real : null };
+  });
+}
+function renderSCurveTable(curve) {
+  const f = (v) => (v === null || v === undefined ? '—' : pct(v));
+  return `<table class="data-table"><thead><tr><th>Fecha</th><th class="num">Esperado línea base</th><th class="num">Esperado fechas actuales</th><th class="num">Real (corte)</th><th class="num">Real − LB</th></tr></thead><tbody>`
+    + sCurveRows(curve).map((r) => `<tr><td>${esc(longDate(r.date))}</td><td class="num">${f(r.lb)}</td><td class="num">${f(r.current)}</td><td class="num">${f(r.real)}</td><td class="num">${r.real !== null && r.lb !== null ? pts(round1(r.real - r.lb)) : '—'}</td></tr>`).join('')
+    + '</tbody></table>';
+}
+/* =================================================================== aplicación */
+const STORAGE_KEY = 'planificador.plan.v1';
+/** El ejemplo arranca 15 días laborales antes de hoy, para que el tablero de avance muestre algo realista. */
+const sampleStart = () => new WorkCalendar().dateAt(todayIso(), -15);
+const FILE_KEY = 'planificador.file.v1';
+const calendar = new WorkCalendar();
+const $ = (sel) => document.querySelector(sel);
+
+function loadStored() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? validatePlan(JSON.parse(raw)) : null; } catch { return null; }
+}
+const stored = loadStored();
+let plan = stored || samplePlan(sampleStart());
+let selectedId = plan.tasks[0] ? plan.tasks[0].id : null;
+// selección de varias filas (Shift+clic rango, Ctrl/Cmd+clic agregar o quitar); vale solo si incluye la fila activa
+let multiSel = new Set();
+let taskClip = null; // último bloque copiado en esta pestaña: { clip, text, inSystem }
+let zoom = 'dias';
+let view = 'cronograma';
+const collapsed = new Set();
+let pendingFocus = null;
+const boardOptions = { level: 'fases', progressTable: false, onlyKey: false, milestoneTable: false };
+let columnSet = 'planificacion';
+// anchos del cronograma elegidos por el usuario (null = automático); se recuerdan en el navegador
+const LAYOUT_KEY = 'planificador.layout.v1';
+const NAME_MIN = 120, NAME_MAX = 900, GRID_MIN = 160, GANTT_MIN = 200, RESIZE_STEP = 16;
+const clampNum = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+const layout = (() => {
+  const ok = (v, lo, hi) => (Number.isFinite(v) ? clampNum(Math.round(v), lo, hi) : null);
+  try { const v = JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; return { nameWidth: ok(v.nameWidth, NAME_MIN, NAME_MAX), gridWidth: ok(v.gridWidth, GRID_MIN, 100000) }; } catch { return { nameWidth: null, gridWidth: null }; }
+})();
+function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* sin almacenamiento */ } }
+const colWidths = () => (layout.nameWidth ? { name: layout.nameWidth } : {});
+let compareId = null; // línea base elegida para comparar (null = la vigente)
+const curveOptions = { scope: PROJECT_KEY, frequency: 'semanal', table: false };
+let currentCurve = null; // datos del gráfico de la curva S, para el tooltip
+const VIEWS = ['cronograma', 'avance', 'hitos', 'curva'];
+const compareBaseline = () => currentBaseline(plan, compareId);
+
+// archivo asociado: `saved` es el plan tal como quedó en el archivo (o el plan nuevo sin tocar)
+let fileHandle = null;
+const snapshot = (p) => JSON.stringify(p);
+let fileMeta = (() => { try { return JSON.parse(localStorage.getItem(FILE_KEY)) || { name: null, saved: null }; } catch { return { name: null, saved: null }; } })();
+if (!stored) fileMeta = { name: null, saved: snapshot(plan) };
+const isDirty = () => plan.tasks.length > 0 && snapshot(plan) !== fileMeta.saved;
+function setFileMeta(name, saved) {
+  fileMeta = { name, saved };
+  try { localStorage.setItem(FILE_KEY, JSON.stringify(fileMeta)); } catch { /* sin almacenamiento */ }
+}
+function commit(next) {
+  plan = next;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(plan)); } catch { /* sin almacenamiento */ }
+  render();
+}
+const statusDate = () => plan.statusDate || todayIso();
+
+$('#app').innerHTML = `
+<header class="topbar">
+  <input id="project-name" class="project-name" title="Nombre del proyecto">
+  <label class="field">Comienzo <input id="project-start" type="date"></label>
+  <span id="file-info" class="file-info"></span>
+  <div class="spacer"></div>
+  <button data-cmd="save" title="Guardar (Ctrl+S)">Guardar</button>
+  <details class="menu" id="file-menu"><summary>Archivo ▾</summary><div class="menu-list">
+    <button data-cmd="new">Nuevo plan</button>
+    <button data-cmd="open">Abrir… <kbd>Ctrl+O</kbd></button>
+    <button data-cmd="save">Guardar <kbd>Ctrl+S</kbd></button>
+    <button data-cmd="save-as">Guardar como… <kbd>Ctrl+Shift+S</kbd></button>
+    <hr>
+    <button data-cmd="import">Importar XML de ProjectLibre / MS Project…</button>
+    <button data-cmd="export-xml">Exportar XML para ProjectLibre / MS Project</button>
+    <button data-cmd="export-csv">Exportar a Excel (CSV)</button>
+    <hr>
+    <button data-cmd="print">Imprimir o guardar PDF de esta vista <kbd>Ctrl+P</kbd></button>
+    <button data-cmd="sample">Cargar el plan de ejemplo</button>
+  </div></details>
+</header>
+<nav class="tabs">
+  <button data-view="cronograma">Cronograma</button>
+  <button data-view="avance">Avance</button>
+  <button data-view="hitos">Hitos</button>
+  <button data-view="curva">Curva S</button>
+  <span class="hint">Festivos de Colombia · lunes a viernes</span>
+</nav>
+<div id="banner" class="banner" hidden></div>
+<section class="view" id="view-cronograma">
+  <nav class="toolbar">
+    <button data-cmd="add" title="Insertar tarea debajo de la seleccionada (Ctrl+Enter)">＋ Tarea</button>
+    <button data-cmd="milestone" title="Insertar hito">◆ Hito</button>
+    <button data-cmd="delete" title="Eliminar tarea y sus subtareas (Supr)">Eliminar</button>
+    <span class="sep"></span>
+    <button data-cmd="outdent" title="Quitar sangría (Alt+Shift+←)">⇤</button>
+    <button data-cmd="indent" title="Aplicar sangría: convertir en subtarea (Alt+Shift+→)">⇥</button>
+    <button data-cmd="up" title="Subir (Alt+Shift+↑)">↑</button>
+    <button data-cmd="down" title="Bajar (Alt+Shift+↓)">↓</button>
+    <span class="sep"></span>
+    <button data-cmd="copy" title="Copiar las filas seleccionadas con su estructura (Ctrl+C). Selecciona con clic en el número de fila; Shift+clic: rango; Ctrl+clic: agregar o quitar">⧉ Copiar</button>
+    <button data-cmd="paste" title="Pegar las filas copiadas como tareas nuevas debajo de la fila seleccionada (Ctrl+V)">Pegar</button>
+    <span class="sep"></span>
+    <label class="field">Escala <select id="zoom"><option value="dias">Días</option><option value="semanas">Semanas</option><option value="meses">Meses</option></select></label>
+    <button data-cmd="goto-start">⇠ Comienzo</button>
+    <button data-cmd="goto-today">Hoy</button>
+    <span class="sep"></span>
+    <label class="field">Columnas <select id="column-set">${Object.entries(COLUMN_SETS).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('')}</select></label>
+    <span class="sep"></span>
+    <span id="lb-controls" class="lb-controls"></span>
+  </nav>
+  <main class="workspace">
+    <section class="grid-pane" id="grid-pane">
+      <div class="grid-body" id="grid-body">
+        <table class="grid" id="grid-table"><thead id="grid-head"></thead><tbody id="grid-rows"></tbody></table>
+        <div class="pad"></div>
+      </div>
+    </section>
+    <div class="splitter" id="splitter" data-resize="grid" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Ancho de la tabla y del Gantt" title="Arrastra para repartir el espacio entre la tabla y el Gantt (doble clic: tabla completa; ← → con el foco)"></div>
+    <section class="gantt-pane"><div class="gantt-header" id="gantt-header"></div><div class="gantt-body" id="gantt-body"></div></section>
+  </main>
+</section>
+<section class="view" id="view-avance" hidden><div class="board" id="board-avance"></div></section>
+<section class="view" id="view-hitos" hidden><div class="board" id="board-hitos"></div></section>
+<section class="view" id="view-curva" hidden><div class="board" id="board-curva"></div></section>
+<div id="sc-tip" class="sc-tip" hidden></div>
+<footer class="statusbar" id="status"></footer>
+<div id="toast" class="toast" hidden></div>
+<dialog id="report" class="report"><h3 id="report-title"></h3><p id="report-intro"></p><ul id="report-list"></ul><form method="dialog"><button class="primary">Entendido</button></form></dialog>
+<div id="dropzone" class="dropzone" hidden>Suelta aquí un plan (.plan.json) o un XML de ProjectLibre / MS Project</div>`;
+
+const gridBody = $('#grid-body'), ganttBody = $('#gantt-body'), ganttHeader = $('#gantt-header');
+let lastXOf = null, syncing = false;
+gridBody.addEventListener('scroll', () => { if (syncing) return; syncing = true; ganttBody.scrollTop = gridBody.scrollTop; syncing = false; });
+ganttBody.addEventListener('scroll', () => { ganttHeader.scrollLeft = ganttBody.scrollLeft; if (syncing) return; syncing = true; gridBody.scrollTop = ganttBody.scrollTop; syncing = false; });
+
+function compute() {
+  try { return { result: schedule(plan, calendar), error: null }; } catch (e) { if (e instanceof ScheduleError) return { result: null, error: e }; throw e; }
+}
+const visibleIndices = () => plan.tasks.map((_, i) => i).filter((i) => !ancestorsOf(plan, i).some((a) => collapsed.has(a)));
+
+function render() {
+  for (const id of collapsed) if (!hasChildren(plan, id)) collapsed.delete(id);
+  if (selectedId && !plan.tasks.some((t) => t.id === selectedId)) selectedId = null;
+  for (const id of multiSel) if (!plan.tasks.some((t) => t.id === id)) multiSel.delete(id);
+  const { result, error } = compute();
+  $('#project-name').value = plan.name;
+  $('#project-start').value = plan.startDate;
+  $('#zoom').value = zoom;
+  for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === view);
+  for (const v of VIEWS) $(`#view-${v}`).hidden = v !== view;
+  $('#column-set').value = columnSet;
+
+  const rows = (error ? error.taskIds : []).map((id) => plan.tasks.findIndex((t) => t.id === id) + 1).filter((n) => n > 0).sort((a, b) => a - b);
+  $('#banner').hidden = !error;
+  $('#banner').textContent = error ? `No se pudo calcular el cronograma: ${error.message}${rows.length ? ` (fila${rows.length > 1 ? 's' : ''} ${rows.join(', ')})` : ''}` : '';
+
+  if (view === 'cronograma') renderSchedule(result, error);
+  else if (view === 'avance') renderProgressBoard(result);
+  else if (view === 'hitos') renderMilestoneBoard(result);
+  else renderCurveBoard(result);
+
+  const dirty = isDirty();
+  $('#file-info').innerHTML = `${esc(fileMeta.name || 'Sin archivo')}${dirty ? ' <span class="dirty" title="Cambios sin guardar en el archivo (el navegador sí los conserva)">● sin guardar</span>' : fileMeta.name ? ' <span class="saved">✓ guardado</span>' : ''}`;
+  document.title = `${dirty ? '● ' : ''}${plan.name} · Planificador`;
+  const leaves = result ? Object.values(result.tasks).filter((s) => !s.isSummary).length : 0;
+  $('#status').innerHTML = result
+    ? `Comienzo <b>${esc(shortDate(result.startDate))}</b> · Fin <b>${esc(shortDate(result.finishDate))}</b> · Duración <b>${result.durationDays}</b> días laborales · ${leaves} tareas · <span class="crit">${result.criticalPath.length} en la ruta crítica</span>`
+    : 'Corrige el error para ver el cronograma';
+  for (const b of document.querySelectorAll('[data-cmd="delete"],[data-cmd="indent"],[data-cmd="outdent"],[data-cmd="up"],[data-cmd="down"],[data-cmd="copy"]')) b.disabled = selectedId == null;
+  $('[data-cmd="paste"]').disabled = !taskClip;
+  if (pendingFocus) {
+    const { index, field } = pendingFocus;
+    pendingFocus = null;
+    const input = document.querySelector(`tr[data-index="${index}"] input[data-field="${field}"]`);
+    if (input) { input.focus(); input.select(); }
+  }
+}
+
+function renderSchedule(result, error) {
+  const visible = visibleIndices();
+  const draft = draftBaseline(plan);
+  const compare = compareBaseline();
+  // en la tabla se muestra (y se edita) el borrador si existe; en el Gantt, la línea base con la que se compara
+  const tableLB = baselineDates(plan, draft || compare, calendar);
+  const ganttLB = baselineDates(plan, compare, calendar);
+  const progress = result ? computeProgress(plan, result, calendar, statusDate(), compare) : null;
+  $('#grid-head').innerHTML = renderTableHead(columnSet, colWidths());
+  applyGridLayout();
+  const sel = selectedIds().length > 1 ? new Set(selectedIds()) : selectedId;
+  $('#grid-rows').innerHTML = renderTableBody(plan, visible, result, sel, collapsed, new Set(error ? error.taskIds : []),
+    { set: columnSet, lb: tableLB, draft, progress, calendar });
+  $('#lb-controls').innerHTML = renderLbControls(draft, compare);
+  const g = renderGantt({ tasks: plan.tasks, visible, result, calendar, startDate: plan.startDate, zoom, selectedId: sel, today: todayIso(), lb: result ? ganttLB : {} });
+  const left = ganttBody.scrollLeft;
+  ganttHeader.innerHTML = g.header;
+  ganttBody.innerHTML = g.body;
+  ganttBody.scrollLeft = left;
+  ganttHeader.scrollLeft = left;
+  lastXOf = g.xOf;
+}
+
+/* Anchos del cronograma sin volver a dibujar: columna "Nombre de tarea" (ancho de la tabla) y panel de la tabla
+   (el Gantt toma el resto). El panel nunca es más ancho que la tabla ni deja al Gantt con menos de GANTT_MIN. */
+function applyGridLayout() {
+  const full = tableWidth(columnSet, colWidths());
+  $('#grid-table').style.width = `${full}px`;
+  const th = $('#grid-head th[data-col="name"]');
+  if (th) th.style.width = `${colWidth('name', colWidths())}px`;
+  const avail = $('.workspace').clientWidth - $('#splitter').offsetWidth;
+  const want = layout.gridWidth == null ? full : Math.min(layout.gridWidth, full);
+  const max = avail > 0 ? Math.max(avail - GANTT_MIN, GRID_MIN) : want;
+  const w = clampNum(want, Math.min(GRID_MIN, full), max);
+  $('#grid-pane').style.width = `${w}px`;
+  ganttHeader.style.marginRight = `${Math.max(ganttBody.offsetWidth - ganttBody.clientWidth, 0)}px`;
+  ganttHeader.scrollLeft = ganttBody.scrollLeft;
+  const resizer = $('#grid-head .col-resizer');
+  if (resizer) resizer.setAttribute('aria-valuenow', String(colWidth('name', colWidths())));
+  $('#splitter').setAttribute('aria-valuenow', String(Math.round(w)));
+}
+function resizeTo(kind, px) {
+  if (kind === 'name') {
+    const w = clampNum(Math.round(px), NAME_MIN, NAME_MAX);
+    layout.nameWidth = w === COLUMN_DEFS.name[1] ? null : w;
+  } else {
+    const full = tableWidth(columnSet, colWidths());
+    const w = clampNum(Math.round(px), GRID_MIN, full);
+    layout.gridWidth = w >= full ? null : w; // panel completo = automático (sigue a la tabla)
+  }
+  applyGridLayout();
+}
+const currentSize = (kind) => (kind === 'name' ? colWidth('name', colWidths()) : $('#grid-pane').getBoundingClientRect().width);
+
+document.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest && e.target.closest('[data-resize]');
+  if (!handle || e.button !== 0 || view !== 'cronograma') return;
+  e.preventDefault();
+  const kind = handle.dataset.resize, x0 = e.clientX, start = currentSize(kind);
+  try { handle.setPointerCapture(e.pointerId); } catch { /* sin captura */ }
+  handle.classList.add('active');
+  document.body.classList.add('resizing');
+  const move = (ev) => resizeTo(kind, start + ev.clientX - x0);
+  const end = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', end);
+    handle.removeEventListener('pointercancel', end);
+    handle.classList.remove('active');
+    document.body.classList.remove('resizing');
+    saveLayout();
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+});
+document.addEventListener('dblclick', (e) => {
+  const handle = e.target.closest && e.target.closest('[data-resize]');
+  if (!handle) return;
+  if (handle.dataset.resize === 'name') layout.nameWidth = null; else layout.gridWidth = null;
+  applyGridLayout();
+  saveLayout();
+});
+document.addEventListener('keydown', (e) => {
+  const handle = e.target.closest && e.target.closest('[data-resize]');
+  if (!handle || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+  e.preventDefault();
+  const step = (e.shiftKey ? 4 : 1) * RESIZE_STEP * (e.key === 'ArrowLeft' ? -1 : 1);
+  resizeTo(handle.dataset.resize, currentSize(handle.dataset.resize) + step);
+  saveLayout();
+});
+
+function renderLbControls(draft, compare) {
+  const list = baselinesOf(plan);
+  const fixed = list.filter((b) => b.status === 'fijada');
+  const last = fixed[fixed.length - 1];
+  const parts = [];
+  if (!list.length) {
+    parts.push('<span class="lb-state">Sin línea base</span><button data-cmd="lb-create" title="Copia las fechas actuales como línea base (en borrador, editable)">Crear línea base</button>');
+  } else {
+    if (last) parts.push(`<span class="lb-state" title="${esc(last.reason || '')}">🔒 LB ${last.number} fijada ${esc(shortDate(last.fixedAt))}</span>`);
+    if (draft) {
+      parts.push(`<span class="lb-state draft" title="Edita sus fechas en Columnas → Línea base">✎ LB ${draft.number} en borrador</span>`
+        + `<button data-cmd="lb-fix" class="primary">Fijar LB ${draft.number}</button><button data-cmd="lb-discard">Descartar</button>`);
+    } else {
+      parts.push('<button data-cmd="lb-create" title="Crea una nueva línea base (las anteriores se conservan)">Nueva línea base…</button>');
+    }
+    if (fixed.length > 1) {
+      parts.push(`<label class="field">Comparar con <select id="compare-lb">${fixed.map((b) => `<option value="${b.id}"${compare && compare.id === b.id ? ' selected' : ''}>LB ${b.number}${b === last ? ' (vigente)' : ''}</option>`).join('')}</select></label>`);
+    }
+  }
+  return parts.join(' ');
+}
+
+function boardWidth(el) { return Math.max(760, (el.clientWidth || document.body.clientWidth || 1200) - 80); }
+const cutControl = () => `<label class="field">Fecha de corte <input type="date" id="status-date" value="${esc(statusDate())}"></label>
+  ${plan.statusDate ? '<button class="link-btn" data-cmd="cut-today">usar hoy</button>' : '<span style="color:var(--muted)">(hoy)</span>'}`;
+
+function renderProgressBoard(result) {
+  const el = $('#board-avance');
+  if (!result) { el.innerHTML = '<div class="empty">Corrige el error del cronograma para ver el avance.</div>'; return; }
+  const cut = statusDate();
+  const compare = compareBaseline();
+  const progress = computeProgress(plan, result, calendar, cut, compare);
+  const total = progress[PROJECT_KEY];
+  const ms = listMilestones(plan, result, cut, compare, calendar);
+  const hasLB = total.plannedLB !== null;
+  const done = ms.filter((m) => m.status === 'cumplido').length;
+  const overdue = ms.filter((m) => m.status === 'vencido');
+  const next = ms.find((m) => m.status === 'proximo' || m.status === 'pendiente');
+  const sections = progressSections(plan, boardOptions.level);
+  const width = boardWidth(el);
+  el.innerHTML = `
+    <div class="board-controls">${cutControl()}
+      <label class="field">Secciones <select id="level"><option value="fases">Fases (primer nivel)</option><option value="todas">Todas las tareas resumen</option></select></label>
+      <label class="field"><input type="checkbox" id="progress-table"${boardOptions.progressTable ? ' checked' : ''}> Ver como tabla</label>
+      ${cutButton()}
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="label">Avance real del proyecto</div><div class="value hero">${esc(pct(total.actual))}</div><div class="note">a ${esc(longDate(cut))}</div></div>
+      <div class="tile"><div class="label">${hasLB ? `Esperado según ${esc(baselineLabel(compare))}` : 'Esperado (sin línea base)'}</div><div class="value">${esc(pct(total.planned))}</div><div class="note">${hasLB ? `con fechas actuales: ${esc(pct(total.plannedCurrent))}` : 'crea una línea base en el Cronograma'}</div></div>
+      <div class="tile"><div class="label">Desviación${hasLB ? ' vs. línea base' : ''}</div><div class="value">${esc(pts(total.variance))}</div><div class="note">${statusHtml(total.status, STATUS_ICON[total.status], STATUS_LABEL[total.status])}</div></div>
+      <div class="tile"><div class="label">Hitos cumplidos</div><div class="value">${done} de ${ms.length}</div><div class="note">${overdue.length ? statusHtml('vencido', '!', `${overdue.length} vencido${overdue.length > 1 ? 's' : ''}`) : 'ninguno vencido'}</div></div>
+      <div class="tile"><div class="label">Fin previsto</div><div class="value">${esc(longDate(result.finishDate))}</div><div class="note">${next ? `próximo hito: ${esc(next.name)} (${esc(longDate(next.date))})` : 'sin hitos pendientes'}</div></div>
+    </div>
+    <div class="card">
+      <h2>Avance por sección</h2>
+      <p class="sub">Promedio ponderado por duración de sus tareas. Desviación: al día ≥ ${RISK_THRESHOLD} pts · en riesgo hasta ${LATE_THRESHOLD} pts · atrasado por debajo.</p>
+      ${sections.length ? `${boardOptions.progressTable ? renderProgressTable(sections, progress) : `<div class="legend"><span class="key"><span class="sw-bar"></span>Avance real</span><span class="key"><span class="sw-mark"></span>${hasLB ? 'Esperado según la línea base' : 'Esperado'} a la fecha de corte</span><span class="key"><span class="sw-track"></span>100 %</span></div><div class="chart">${renderProgressChart(sections, progress, width)}</div>`}` : '<div class="empty">Agrega tareas para ver el avance.</div>'}
+    </div>
+    <div class="card">
+      <h2>Hitos clave</h2>
+      <p class="sub">Los marcados con ★ en el cronograma. ${ms.some((m) => m.key) ? '' : 'Aún no hay hitos clave: márcalos con ☆ en la tabla del cronograma.'}</p>
+      ${ms.some((m) => m.key) ? renderMilestoneTable(ms.filter((m) => m.key)) : ''}
+    </div>`;
+  $('#level').value = boardOptions.level;
+}
+
+function renderMilestoneBoard(result) {
+  const el = $('#board-hitos');
+  if (!result) { el.innerHTML = '<div class="empty">Corrige el error del cronograma para ver los hitos.</div>'; return; }
+  const cut = statusDate();
+  const all = listMilestones(plan, result, cut, compareBaseline(), calendar);
+  const list = boardOptions.onlyKey ? all.filter((m) => m.key) : all;
+  const count = (s) => all.filter((m) => m.status === s).length;
+  el.innerHTML = `
+    <div class="board-controls">${cutControl()}
+      <label class="field"><input type="checkbox" id="only-key"${boardOptions.onlyKey ? ' checked' : ''}> Solo hitos clave ★</label>
+      <label class="field"><input type="checkbox" id="milestone-table"${boardOptions.milestoneTable ? ' checked' : ''}> Ver como tabla</label>
+    </div>
+    <div class="card">
+      <h2>Gantt de hitos</h2>
+      <p class="sub">${all.length} hitos · ${count('cumplido')} cumplidos · ${count('vencido')} vencidos · ${count('proximo')} en los próximos ${UPCOMING_DAYS} días. Un hito se cumple al ponerle 100 % en el cronograma.</p>
+      ${list.length ? (boardOptions.milestoneTable ? renderMilestoneTable(list) : `<div class="legend">
+        <span class="key"><span class="sw-dia" style="background:var(--good)"></span>Cumplido</span><span class="key"><span class="sw-dia" style="background:var(--critical)"></span>Vencido</span>
+        <span class="key"><span class="sw-dia" style="background:var(--warning)"></span>Próximo (${UPCOMING_DAYS} días)</span><span class="key"><span class="sw-dia"></span>Pendiente</span>
+        <span class="key"><span class="sw-mark" style="width:1px;background:var(--ink-2)"></span>Fecha de corte</span><span class="key">★ hito clave (rombo más grande)</span>${all.some((m) => m.baselineDate) ? '<span class="key"><span class="sw-dia-lb"></span>Fecha de la línea base</span>' : ''}</div>
+        <div class="chart">${renderMilestoneTimeline(list, cut, boardWidth(el))}</div>`)
+        : `<div class="empty">${boardOptions.onlyKey ? 'No hay hitos clave. Márcalos con ☆ en la tabla del cronograma.' : 'No hay hitos. Agrega uno con "◆ Hito" en el cronograma.'}</div>`}
+    </div>`;
+}
+
+const cutButton = () => `<button data-cmd="cut-record" title="Guarda el % real de cada tarea a la fecha de corte (alimenta la línea Real de la curva S)">📌 Registrar corte</button>`;
+
+function renderCurveBoard(result) {
+  const el = $('#board-curva');
+  if (!result) { el.innerHTML = '<div class="empty">Corrige el error del cronograma para ver la curva S.</div>'; currentCurve = null; return; }
+  const compare = compareBaseline();
+  const phases = plan.tasks.filter((t) => t.parentId == null && hasChildren(plan, t.id));
+  if (curveOptions.scope !== PROJECT_KEY && !phases.some((t) => t.id === curveOptions.scope)) curveOptions.scope = PROJECT_KEY;
+  const curve = sCurve(plan, result, calendar, compare, curveOptions.scope, curveOptions.frequency);
+  const cortes = plan.cortes || [];
+  const width = boardWidth(el);
+  currentCurve = curve;
+  const scopeName = curveOptions.scope === PROJECT_KEY ? 'todo el proyecto' : plan.tasks.find((t) => t.id === curveOptions.scope).name;
+  el.innerHTML = `
+    <div class="board-controls">${cutControl()}
+      <label class="field">Alcance <select id="curve-scope"><option value="${PROJECT_KEY}">Todo el proyecto</option>${phases.map((t) => `<option value="${esc(t.id)}"${t.id === curveOptions.scope ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>
+      <label class="field">Cortes <select id="curve-frequency"><option value="semanal">Semanal (viernes)</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual (fin de mes)</option></select></label>
+      <label class="field"><input type="checkbox" id="curve-table"${curveOptions.table ? ' checked' : ''}> Ver como tabla</label>
+      ${cutButton()}
+    </div>
+    <div class="card">
+      <h2>Curva S: esperado contra real · ${esc(scopeName)}</h2>
+      <p class="sub">${compare ? `Comparado con ${esc(baselineLabel(compare))}.` : 'Sin línea base: crea y fija una en el Cronograma para comparar.'} La línea real sale de los cortes registrados (${cortes.length}).
+        ${cortes.length ? '' : ' Aún no hay cortes: pulsa “Registrar corte” cada semana.'}</p>
+      ${curveOptions.table ? renderSCurveTable(curve) : `<div class="legend">
+        ${compare ? '<span class="key"><span class="sw-line sc-lb-key"></span>Esperado según línea base</span>' : ''}
+        <span class="key"><span class="sw-line sc-cur-key"></span>Esperado con fechas actuales</span>
+        <span class="key"><span class="sw-line sc-real-key"></span><span class="sw-dot"></span>Real (cortes)</span>
+        <span class="key"><span class="sw-mark" style="width:1px;background:var(--ink-2)"></span>Fecha de corte</span></div>
+        <div class="chart sc-chart">${renderSCurve(curve, width, statusDate())}</div>`}
+    </div>
+    <div class="card">
+      <h2>Cortes registrados</h2>
+      <p class="sub">Cada corte guarda el % real de cada tarea en esa fecha. Registrar de nuevo en la misma fecha lo reemplaza.</p>
+      ${cortes.length ? `<table class="data-table"><thead><tr><th>Fecha de corte</th><th class="num">% real (${esc(scopeName)})</th><th>Registrado el</th><th></th></tr></thead><tbody>
+        ${[...curve.real].reverse().map((r) => { const c = cortes.find((x) => x.date === r.date); return `<tr><td>${esc(longDate(r.date))}</td><td class="num">${esc(pct(r.real))}</td><td>${esc(longDate(c.recordedAt))}</td><td><button class="link-btn" data-cmd="cut-delete" data-date="${esc(r.date)}">Quitar</button></td></tr>`; }).join('')}
+      </tbody></table>` : '<div class="empty">Sin cortes todavía.</div>'}
+    </div>`;
+  $('#curve-frequency').value = curveOptions.frequency;
+}
+
+// tooltip de la curva S: la línea vertical busca el corte más cercano
+document.addEventListener('mousemove', (e) => {
+  const tip = $('#sc-tip');
+  if (!currentCurve || e.target.id !== 'sc-overlay') { if (!tip.hidden) { tip.hidden = true; const c = $('#sc-cross'); if (c) c.setAttribute('visibility', 'hidden'); } return; }
+  const svg = e.target.ownerSVGElement;
+  const box = svg.getBoundingClientRect();
+  const pl = Number(svg.dataset.pl), pw = Number(svg.dataset.pw);
+  const d0 = toDayNumber(currentCurve.from), span = Math.max(toDayNumber(currentCurve.to) - d0, 1);
+  const day = d0 + ((e.clientX - box.left - pl) / pw) * span;
+  const rows = sCurveRows(currentCurve);
+  const near = rows.reduce((a, r) => (Math.abs(toDayNumber(r.date) - day) < Math.abs(toDayNumber(a.date) - day) ? r : a), rows[0]);
+  const x = pl + ((toDayNumber(near.date) - d0) / span) * pw;
+  const cross = $('#sc-cross');
+  cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('visibility', 'visible');
+  const lastReal = [...currentCurve.real].reverse().find((r) => r.date <= near.date);
+  const line = (label, v, cls) => `<div class="tip-row"><span class="tip-key ${cls}"></span><b>${v === null || v === undefined ? '—' : esc(pct(v))}</b> ${esc(label)}</div>`;
+  tip.innerHTML = `<div class="tip-date">${esc(longDate(near.date))}</div>`
+    + (near.lb !== null && near.lb !== undefined ? line('esperado línea base', near.lb, 'sc-lb-key') : '')
+    + (near.current !== null ? line('esperado fechas actuales', near.current, 'sc-cur-key') : '')
+    + line(lastReal ? `real (corte ${lastReal.date.slice(8)}/${lastReal.date.slice(5, 7)})` : 'real (sin corte)', lastReal ? lastReal.real : null, 'sc-real-key');
+  tip.hidden = false;
+  tip.style.left = `${Math.min(e.clientX + 16, window.innerWidth - 260)}px`;
+  tip.style.top = `${e.clientY + 12}px`;
+});
+
+let toastTimer = 0;
+function toast(message) {
+  const el = $('#toast');
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4500);
+}
+function showReport(title, intro, items) {
+  $('#report-title').textContent = title;
+  $('#report-intro').textContent = intro;
+  $('#report-list').innerHTML = items.map((i) => `<li>${esc(i)}</li>`).join('');
+  $('#report').showModal();
+}
+
+/* ----------------------------------------------- archivos */
+/** Aplica un cambio que mueve fechas; con línea base fijada lo registra en el historial (pide motivo, opcional). */
+function commitReschedule(id, next, wantedStart = null) {
+  let before = null, after = null;
+  try { before = schedule(plan, calendar).tasks[id]; } catch { /* plan con error */ }
+  try { after = schedule(next, calendar).tasks[id]; } catch { /* se mostrará el error */ }
+  if (before && after && hasFixedBaseline(next) && (before.start !== after.start || before.finish !== after.finish)) {
+    const t = plan.tasks.find((x) => x.id === id);
+    const reason = prompt(`Reprogramación de "${t.name}": ${shortDate(before.start)} → ${shortDate(before.finish)}  ⇒  ${shortDate(after.start)} → ${shortDate(after.finish)}\nMotivo (opcional):`, '');
+    if (reason === null) { render(); return; } // cancelado: no se aplica el cambio
+    next = addReschedule(next, id, { at: todayIso(), prevStart: before.start, prevFinish: before.finish, start: after.start, finish: after.finish, reason: reason.trim() });
+  }
+  commit(next);
+  if (wantedStart && after && after.start !== wantedStart && !after.isMilestone) {
+    toast(`Sus predecesoras no permiten empezar el ${shortDate(wantedStart)}: el comienzo más temprano es el ${shortDate(after.start)}.`);
+  }
+}
+
+function confirmDiscard(action) {
+  if (!isDirty()) return true;
+  return confirm(`Hay cambios sin guardar${fileMeta.name ? ` en "${fileMeta.name}"` : ' (este plan no está guardado en ningún archivo)'}. ¿${action} de todos modos?`);
+}
+function replacePlan(next, name, handle, saved) {
+  collapsed.clear();
+  multiSel.clear();
+  selectedId = next.tasks[0] ? next.tasks[0].id : null;
+  fileHandle = handle;
+  setFileMeta(name, saved ? snapshot(next) : null);
+  commit(next);
+  run('goto-start');
+}
+function loadFileText(name, text, handle) {
+  try {
+    if (/\.xml$/i.test(name) || text.trimStart().startsWith('<')) {
+      const { plan: imported, warnings } = importMsProjectXml(text);
+      replacePlan(imported, null, null, false);
+      if (warnings.length) showReport('Importación del XML', `Se importaron ${imported.tasks.length} tareas de "${name}". Revisa estos ajustes:`, warnings);
+      else toast(`Se importaron ${imported.tasks.length} tareas de "${name}". Guárdalo con "Guardar como…".`);
+    } else {
+      replacePlan(parsePlanFile(text), name, handle, true);
+      toast(`Abierto "${name}".`);
+    }
+  } catch (e) {
+    if (e instanceof PlanFileError || e instanceof MsProjectImportError) showReport('No se pudo abrir el archivo', `"${name}"`, [e.message]);
+    else throw e;
+  }
+}
+async function cmdOpen(types) {
+  if (!confirmDiscard('Abrir otro archivo')) return;
+  const f = await openFile(types);
+  if (f) loadFileText(f.name, f.text, f.handle || null);
+}
+async function cmdSave(forceAs) {
+  const text = serializePlan(plan);
+  if (fileHandle && !forceAs) {
+    await writeToHandle(fileHandle, text);
+    setFileMeta(fileHandle.name, snapshot(plan));
+    toast(`Guardado en "${fileHandle.name}".`);
+    render();
+    return;
+  }
+  const suggested = fileMeta.name && /\.json$/i.test(fileMeta.name) ? fileMeta.name : fileNameFor(plan.name, FILE_EXTENSION);
+  const r = await saveFileAs(suggested, text, PLAN_TYPE, 'application/json');
+  if (!r) return;
+  fileHandle = r.handle;
+  setFileMeta(r.name, snapshot(plan));
+  toast(r.handle ? `Guardado en "${r.name}".` : `Descargado "${r.name}" (este navegador no permite guardar sobre el mismo archivo).`);
+  render();
+}
+async function cmdExport(kind) {
+  const { result } = compute();
+  if (!result) { toast('Corrige el error del cronograma antes de exportar.'); return; }
+  const r = kind === 'xml'
+    ? await saveFileAs(fileNameFor(plan.name, '.xml'), exportMsProjectXml(plan, result, compareBaseline(), calendar), XML_TYPE, 'application/xml')
+    : await saveFileAs(fileNameFor(plan.name, '.csv'), planToCsv(plan, result, computeProgress(plan, result, calendar, statusDate(), compareBaseline()), compareBaseline(), calendar), CSV_TYPE, 'text/csv');
+  if (r) toast(kind === 'xml' ? `Exportado "${r.name}". Ábrelo en ProjectLibre o MS Project.` : `Exportado "${r.name}". Ábrelo con Excel.`);
+}
+function runAsync(promise) {
+  promise.catch((e) => { console.error(e); showReport('Ocurrió un error con el archivo', '', [e && e.message ? e.message : String(e)]); });
+}
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; $('#dropzone').hidden = false; } });
+window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('#dropzone').hidden = true; });
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $('#dropzone').hidden = true;
+  const file = e.dataTransfer && e.dataTransfer.files[0];
+  if (!file || !confirmDiscard('Abrir el archivo soltado')) return;
+  runAsync(file.text().then((text) => loadFileText(file.name, text, null)));
+});
+
+/* ----------------------------------------------- seleccionar, copiar y pegar filas
+   Se copia el bloque con su estructura (copyTasks) a `taskClip` (memoria de la pestaña) y, con Ctrl+C, también al
+   portapapeles del sistema: JSON en CLIP_MIME (Chromium lo conserva entre pestañas) + texto tabulado para Excel.
+   Ctrl+V usa el JSON si viene; si no, `taskClip` mientras el portapapeles siga teniendo lo que copiamos.
+   Dentro de inputs o con texto seleccionado en la página, Ctrl+C / Ctrl+V funcionan como siempre. */
+const CLIP_MIME = 'application/x-planificador-tareas+json';
+/** Filas seleccionadas en orden de filas (solo la activa si no hay selección múltiple). */
+function selectedIds() {
+  if (!selectedId) return [];
+  if (multiSel.size > 1 && multiSel.has(selectedId)) return plan.tasks.filter((t) => multiSel.has(t.id)).map((t) => t.id);
+  return [selectedId];
+}
+/** Shift+clic: rango desde la fila activa (en el orden visible); Ctrl/Cmd+clic: agrega o quita la fila. */
+function extendSelection(id, range) {
+  if (!selectedId) { selectedId = id; multiSel.clear(); return; }
+  if (range) {
+    const vis = visibleIndices().map((i) => plan.tasks[i].id);
+    const a = vis.indexOf(selectedId), b = vis.indexOf(id);
+    if (a < 0 || b < 0) return;
+    multiSel = new Set(vis.slice(Math.min(a, b), Math.max(a, b) + 1));
+    return;
+  }
+  const current = new Set(selectedIds());
+  if (current.has(id)) {
+    current.delete(id);
+    if (!current.size) return; // siempre queda al menos una fila
+    if (id === selectedId) selectedId = plan.tasks.filter((t) => current.has(t.id)).pop().id;
+  } else { current.add(id); selectedId = id; }
+  multiSel = current;
+}
+const isEditable = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+/** Copiar/pegar filas solo en el cronograma, fuera de campos editables y sin texto seleccionado en la página. */
+function rowClipboardActive(e) {
+  if (view !== 'cronograma' || $('#report').open) return false;
+  if (isEditable(e.target) || isEditable(document.activeElement)) return false;
+  const s = window.getSelection && window.getSelection();
+  return !(s && String(s).length);
+}
+/** Texto tabulado (nombre con sangría, duración, comienzo, fin, % real) para pegar en Excel u otra aplicación. */
+function clipText(clip) {
+  const { result } = compute();
+  const level = new Map();
+  return clip.tasks.map((t) => {
+    const lv = t.parentId != null && level.has(t.parentId) ? level.get(t.parentId) + 1 : 0;
+    level.set(t.id, lv);
+    const s = result && result.tasks[t.id];
+    return [`${'  '.repeat(lv)}${t.name}`, s ? s.duration : t.duration, s ? s.start : '', s ? s.finish : '', t.percentComplete || 0].join('\t');
+  }).join('\r\n');
+}
+function copyRows() {
+  const ids = selectedIds();
+  if (!ids.length) return null;
+  const clip = copyTasks(plan, ids);
+  taskClip = { clip, text: clipText(clip), inSystem: false };
+  $('[data-cmd="paste"]').disabled = false;
+  const n = clip.tasks.length, extra = n - ids.length;
+  toast(`${n === 1 ? 'Copiada 1 fila' : `Copiadas ${n} filas`}${extra > 0 ? ` (incluye ${extra} subtarea${extra > 1 ? 's' : ''})` : ''}. Selecciona la fila de abajo de la cual pegar y usa Ctrl+V.`);
+  return taskClip;
+}
+function pasteRows(clip) {
+  const ids = selectedIds();
+  const after = ids.length ? plan.tasks.findIndex((t) => t.id === ids[ids.length - 1]) : -1;
+  const r = pasteTasks(plan, clip, after >= 0 ? after : null);
+  selectedId = r.ids[0];
+  multiSel = new Set(r.ids);
+  commit(r.plan);
+  const n = r.ids.length;
+  toast(`${n === 1 ? 'Pegada 1 tarea nueva' : `Pegadas ${n} tareas nuevas`}${r.dropped ? `. Se omitieron ${r.dropped} predecesora${r.dropped > 1 ? 's' : ''} que apuntaba${r.dropped > 1 ? 'n' : ''} a tareas que no están en este plan (o que ahora son resumen).` : '.'}`);
+}
+document.addEventListener('copy', (e) => {
+  if (!rowClipboardActive(e) || !selectedIds().length) return;
+  const c = copyRows();
+  if (!c) return;
+  e.preventDefault();
+  try { e.clipboardData.setData('text/plain', c.text); e.clipboardData.setData(CLIP_MIME, JSON.stringify(c.clip)); c.inSystem = true; } catch { c.inSystem = false; }
+});
+document.addEventListener('paste', (e) => {
+  if (!rowClipboardActive(e)) return;
+  const data = e.clipboardData;
+  let clip = null;
+  try { const raw = data && data.getData(CLIP_MIME); if (raw) clip = parseTaskClip(JSON.parse(raw)); } catch { clip = null; }
+  if (!clip && taskClip && (!taskClip.inSystem || (data && data.getData('text/plain') === taskClip.text))) clip = taskClip.clip;
+  if (!clip) return; // no son filas del planificador: no se toca nada
+  e.preventDefault();
+  pasteRows(clip);
+});
+// con Shift o Ctrl/Cmd, el clic en una fila selecciona filas: no entra a editar la celda ni selecciona texto
+document.addEventListener('mousedown', (e) => {
+  if ((e.shiftKey || e.ctrlKey || e.metaKey) && view === 'cronograma' && e.target.closest && e.target.closest('#grid-rows tr[data-id], #gantt-body [data-id]')) {
+    e.preventDefault();
+    if (isEditable(document.activeElement)) document.activeElement.blur();
+  }
+});
+
+/* ----------------------------------------------- comandos */
+const selectedIndex = () => (selectedId ? plan.tasks.findIndex((t) => t.id === selectedId) : -1);
+function setView(v) {
+  view = VIEWS.includes(v) ? v : 'cronograma';
+  if (location.hash.slice(1) !== view) history.replaceState(null, '', `#${view}`);
+  render();
+}
+function run(cmd, el = null) {
+  const idx = selectedIndex();
+  $('#file-menu').open = false;
+  switch (cmd) {
+    case 'add': case 'milestone': {
+      if (view !== 'cronograma') setView('cronograma');
+      const r = insertTask(plan, idx >= 0 ? idx : null, cmd === 'milestone' ? 'Nuevo hito' : 'Nueva tarea', cmd === 'milestone' ? 0 : 1);
+      selectedId = r.plan.tasks[r.index].id;
+      pendingFocus = { index: r.index, field: 'name' };
+      commit(r.plan);
+      break;
+    }
+    case 'delete': {
+      if (idx < 0) return;
+      const t = plan.tasks[idx];
+      if (hasChildren(plan, t.id) && !confirm(`"${t.name}" tiene subtareas. ¿Eliminarla con todas sus subtareas?`)) return;
+      const next = deleteTask(plan, idx);
+      selectedId = next.tasks[Math.min(idx, next.tasks.length - 1)] ? next.tasks[Math.min(idx, next.tasks.length - 1)].id : null;
+      commit(next);
+      break;
+    }
+    case 'indent': case 'outdent': {
+      if (idx < 0) return;
+      const next = cmd === 'indent' ? indentTask(plan, idx) : outdentTask(plan, idx);
+      if (next === plan) { toast(cmd === 'indent' ? 'No se puede aplicar sangría: no hay una tarea hermana encima.' : 'La tarea ya está en el primer nivel.'); break; }
+      const countDeps = (p) => p.tasks.reduce((n, t) => n + (t.dependencies || []).length, 0);
+      const removed = countDeps(plan) - countDeps(next);
+      const becameSummary = next.tasks.find((t) => hasChildren(next, t.id) && !hasChildren(plan, t.id));
+      commit(next);
+      if (removed > 0) toast(`"${becameSummary ? becameSummary.name : 'La tarea'}" pasó a ser tarea resumen: se quitaron ${removed} predecesora${removed > 1 ? 's' : ''}. Ponlas en sus subtareas.`);
+      break;
+    }
+    case 'copy': {
+      const c = copyRows();
+      // también como texto en el portapapeles del sistema (si el navegador lo permite); pegar usa la copia en memoria
+      if (c && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(c.text).then(() => { c.inSystem = true; }, () => {});
+      break;
+    }
+    case 'paste':
+      if (taskClip) pasteRows(taskClip.clip); else toast('Primero copia filas: selecciónalas y usa "Copiar" o Ctrl+C.');
+      break;
+    case 'up': case 'down': {
+      if (idx < 0) return;
+      const r = moveTask(plan, idx, cmd === 'up' ? -1 : 1);
+      if (r.plan !== plan) commit(r.plan);
+      break;
+    }
+    case 'sample':
+      if (confirmDiscard('Cargar el ejemplo')) replacePlan(samplePlan(sampleStart()), null, null, true);
+      break;
+    case 'new':
+      if (confirmDiscard('Crear un plan nuevo')) replacePlan(emptyPlan(calendar.nextWorkingDay(todayIso())), null, null, true);
+      break;
+    case 'open': runAsync(cmdOpen([PLAN_TYPE, XML_TYPE])); break;
+    case 'import': runAsync(cmdOpen([XML_TYPE])); break;
+    case 'save': runAsync(cmdSave(false)); break;
+    case 'save-as': runAsync(cmdSave(true)); break;
+    case 'export-xml': runAsync(cmdExport('xml')); break;
+    case 'export-csv': runAsync(cmdExport('csv')); break;
+    case 'print': setTimeout(() => window.print(), 50); break;
+    case 'cut-today': { const next = clonePlan(plan); delete next.statusDate; commit(next); break; }
+    case 'lb-create': {
+      const { result } = compute();
+      if (!result) { toast('Corrige el error del cronograma antes de crear la línea base.'); return; }
+      let reason = '';
+      if (baselinesOf(plan).length) {
+        reason = prompt('Motivo de la nueva línea base (ej. cambio de alcance aprobado):', '');
+        if (reason === null) return;
+      }
+      const next = createBaseline(plan, result, reason.trim());
+      columnSet = 'lineabase';
+      commit(next);
+      toast(`LB ${draftBaseline(next).number} creada en borrador: revisa o ajusta sus fechas y pulsa "Fijar".`);
+      break;
+    }
+    case 'lb-fix': {
+      const d = draftBaseline(plan);
+      if (!d || !confirm(`¿Fijar la LB ${d.number}? Después no se podrá modificar (sí podrás crear otra línea base).`)) return;
+      compareId = null;
+      commit(fixBaseline(plan));
+      toast(`LB ${d.number} fijada. Ahora el avance se mide contra ella.`);
+      break;
+    }
+    case 'lb-discard': {
+      const d = draftBaseline(plan);
+      if (!d || !confirm(`¿Descartar la LB ${d.number} en borrador?`)) return;
+      commit(discardDraftBaseline(plan));
+      break;
+    }
+    case 'cut-record': {
+      const date = statusDate();
+      if ((plan.cortes || []).some((c) => c.date === date) && !confirm(`Ya hay un corte el ${longDate(date)}. ¿Reemplazarlo con el avance actual?`)) return;
+      commit(recordCut(plan, date));
+      toast(`Corte del ${longDate(date)} registrado.`);
+      break;
+    }
+    case 'cut-delete': {
+      const date = el && el.dataset.date;
+      if (date && confirm(`¿Quitar el corte del ${longDate(date)}?`)) commit(deleteCut(plan, date));
+      break;
+    }
+    case 'goto-start': if (lastXOf) ganttBody.scrollLeft = Math.max(lastXOf(plan.startDate) - 40, 0); break;
+    case 'goto-today': if (lastXOf) ganttBody.scrollLeft = Math.max(lastXOf(todayIso()) - 200, 0); break;
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const target = e.target;
+  const cmdEl = target.closest('[data-cmd]');
+  if (cmdEl) { run(cmdEl.dataset.cmd, cmdEl); return; }
+  const viewEl = target.closest('[data-view]');
+  if (viewEl) { setView(viewEl.dataset.view); return; }
+  if (!target.closest('#file-menu')) $('#file-menu').open = false;
+  const row = target.closest('tr[data-id], [data-id]');
+  const action = target.closest('[data-action]');
+  if (action && row) {
+    const id = row.dataset.id;
+    if (action.dataset.action === 'toggle') { if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id); render(); }
+    if (action.dataset.action === 'key') { const t = plan.tasks.find((x) => x.id === id); commit(updateTask(plan, id, { key: !t.key })); }
+    if (action.dataset.action === 'history') {
+      const t = plan.tasks.find((x) => x.id === id);
+      showReport(`Reprogramaciones: ${t.name}`, `${(t.history || []).length} cambio(s) de fechas registrados.`,
+        (t.history || []).map((h) => `${longDate(h.at)}: ${h.prevStart ? `${shortDate(h.prevStart)} → ${shortDate(h.prevFinish)}` : '—'}  ⇒  ${shortDate(h.start)} → ${shortDate(h.finish)}${h.reason ? ` · ${h.reason}` : ''}`));
+    }
+    return;
+  }
+  if (row && row.dataset.id && row.closest('#view-cronograma') && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+    extendSelection(row.dataset.id, e.shiftKey);
+    render();
+    return;
+  }
+  if (row && row.dataset.id && (row.dataset.id !== selectedId || multiSel.size) && row.closest('#view-cronograma')) {
+    multiSel.clear();
+    selectedId = row.dataset.id;
+    if (target.dataset && target.dataset.field) pendingFocus = { index: Number(row.closest('tr') ? row.closest('tr').dataset.index : -1), field: target.dataset.field };
+    render();
+  }
+});
+
+document.addEventListener('change', (e) => {
+  const input = e.target;
+  if (input.id === 'project-name') { commit({ ...plan, name: input.value.trim() || 'Proyecto' }); return; }
+  if (input.id === 'project-start') { if (isValidDate(input.value)) commit({ ...plan, startDate: input.value }); return; }
+  if (input.id === 'status-date') { if (isValidDate(input.value)) commit({ ...plan, statusDate: input.value }); return; }
+  if (input.id === 'zoom') { zoom = DAY_WIDTH[input.value] ? input.value : 'dias'; render(); return; }
+  if (input.id === 'level') { boardOptions.level = input.value; render(); return; }
+  if (input.id === 'progress-table') { boardOptions.progressTable = input.checked; render(); return; }
+  if (input.id === 'only-key') { boardOptions.onlyKey = input.checked; render(); return; }
+  if (input.id === 'milestone-table') { boardOptions.milestoneTable = input.checked; render(); return; }
+  if (input.id === 'column-set') { columnSet = COLUMN_SETS[input.value] ? input.value : 'planificacion'; render(); return; }
+  if (input.id === 'compare-lb') { compareId = input.value; render(); return; }
+  if (input.id === 'curve-scope') { curveOptions.scope = input.value; render(); return; }
+  if (input.id === 'curve-frequency') { curveOptions.frequency = input.value; render(); return; }
+  if (input.id === 'curve-table') { curveOptions.table = input.checked; render(); return; }
+  const field = input.dataset && input.dataset.field;
+  const tr = input.closest && input.closest('tr');
+  const id = tr && tr.dataset.id;
+  if (!field || !id) return;
+  const value = input.value;
+  if (field === 'name') commit(updateTask(plan, id, { name: value.trim() || 'Sin nombre' }));
+  else if (field === 'duration') {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0) { toast('La duración debe ser un número entero de días laborales (0 = hito).'); render(); return; }
+    commitReschedule(id, updateTask(plan, id, { duration: n }));
+  } else if (field === 'start') {
+    if (value && !isValidDate(value)) { render(); return; }
+    const next = updateTask(plan, id, { startNoEarlierThan: value || undefined });
+    commitReschedule(id, next, value ? calendar.nextWorkingDay(value) : null);
+  } else if (field === 'finish') {
+    const s = compute().result && compute().result.tasks[id];
+    if (!s || !isValidDate(value)) { render(); return; }
+    const n = calendar.workingDaysBetween(s.start, value);
+    if (n < 1) { toast(`El fin no puede ser antes del comienzo (${shortDate(s.start)}).`); render(); return; }
+    commitReschedule(id, updateTask(plan, id, { duration: n }));
+  } else if (field === 'lbstart' || field === 'lbfinish') {
+    const d = draftBaseline(plan);
+    const b = d && d.tasks[id];
+    if (!b || !isValidDate(value)) { render(); return; }
+    try {
+      if (field === 'lbstart') {
+        const start = calendar.nextWorkingDay(value); // mover el inicio conserva la duración de la línea base
+        commit(setBaselineDates(plan, id, start, calendar.dateAt(start, Math.max(b.duration - 1, 0)), calendar));
+      } else {
+        commit(setBaselineDates(plan, id, b.duration === 0 ? value : b.start, value, calendar));
+      }
+    } catch (err) {
+      if (!(err instanceof BaselineError)) throw err;
+      toast(err.message);
+      render();
+    }
+  } else if (field === 'pct') {
+    const n = Math.round(Number(value));
+    commit(updateTask(plan, id, { percentComplete: Number.isFinite(n) ? Math.min(Math.max(n, 0), 100) : 0 }));
+  } else if (field === 'pred') {
+    try {
+      const deps = parsePredecessors(value, (row) => (plan.tasks[row - 1] ? plan.tasks[row - 1].id : undefined));
+      if (deps.some((d) => d.predecessorId === id)) throw new PredecessorSyntaxError('Una tarea no puede depender de sí misma');
+      if (deps.some((d) => hasChildren(plan, d.predecessorId))) throw new PredecessorSyntaxError('No se puede depender de una tarea resumen; usa una de sus subtareas');
+      commit(updateTask(plan, id, { dependencies: deps }));
+    } catch (err) {
+      if (!(err instanceof PredecessorSyntaxError)) throw err;
+      toast(err.message);
+      render();
+    }
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  const input = e.target;
+  const inCell = input.classList && input.classList.contains('cell');
+  if (inCell && (e.key === 'Enter' || e.key === 'Escape')) {
+    const tr = input.closest('tr');
+    if (e.key === 'Enter' && tr) {
+      const visible = visibleIndices();
+      const nextIndex = visible[visible.indexOf(Number(tr.dataset.index)) + (e.shiftKey ? -1 : 1)];
+      if (nextIndex != null) { pendingFocus = { index: nextIndex, field: input.dataset.field }; selectedId = plan.tasks[nextIndex].id; }
+    }
+    if (e.key === 'Escape') { render(); return; }
+    input.blur();
+    if (pendingFocus) render();
+    e.preventDefault();
+    return;
+  }
+  const mod = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  if (mod && key === 's') { e.preventDefault(); if (document.activeElement) document.activeElement.blur(); run(e.shiftKey ? 'save-as' : 'save'); return; }
+  if (mod && key === 'o') { e.preventDefault(); run('open'); return; }
+  if (mod && e.key === 'Enter') { e.preventDefault(); run('add'); return; }
+  if (e.altKey && e.shiftKey) {
+    const map = { ArrowRight: 'indent', ArrowLeft: 'outdent', ArrowUp: 'up', ArrowDown: 'down' };
+    if (map[e.key]) { e.preventDefault(); run(map[e.key]); return; }
+  }
+  if (!inCell && e.key === 'Delete' && selectedId && view === 'cronograma' && input.tagName !== 'INPUT') { e.preventDefault(); run('delete'); }
+});
+window.addEventListener('hashchange', () => setView(location.hash.slice(1)));
+let resizeTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (view !== 'cronograma') render(); else applyGridLayout(); }, 150); });
+
+view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'cronograma';
+render();
+run('goto-start');
+
+})();
+</script>
+</body>
+</html>
